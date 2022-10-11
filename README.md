@@ -16,7 +16,7 @@ SDRAM of any size is required.
 * Widescreen modes
 * Screen roation by 180°
 * Inputs: DualShock, Digital, Analog, Mouse, NeGcon, Wheel, Justifier and Guncon support.
-* Native Input support through SNAC
+* Native Input support through LLAPI
 
 ## Bios
 Rename your playstation bios file (e.g. `scph-1001.bin`/`ps-22a.bin` ) and place it in the `./games/PSX/` folder.
