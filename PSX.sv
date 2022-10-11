@@ -186,7 +186,11 @@ assign AUDIO_MIX = status[8:7];
 assign LED_USER  = exe_download | bk_pending;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
-assign BUTTONS   = 0;
+
+//LLAPI : ignore this line
+//assign USER_OUT = '1;
+//LLAPI
+
 assign VGA_SCALER= 0;
 
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
@@ -370,11 +374,16 @@ parameter CONF_STR = {
 	"-;",
 	"O[40:39],System Type,Auto,NTSC-U,NTSC-J,PAL;",
 	"-;",
-	"D8O[48:45],Pad1,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,SNAC-port1,Analog Joystick;",
-	"D8O[52:49],Pad2,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,SNAC-port2,Analog Joystick;",
+	"D8O[48:45],Pad1,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,Analog Joystick;",
+	"D8O[52:49],Pad2,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,Analog Joystick;",
 	"D8h2O[9],Show Crosshair,Off,On;",
 	"D8h4O[31],DS Mode,L3+R3+Up/Dn | Click,L1+L2+R1+R2+Up/Dn;",
 	"O[66],Multitap,Off,Port1: 4 x Digital;",
+	"-;",
+	//LLAPI: OSD menu item. swapped NONE with LLAPI. To detect LLAPI, status[19] = 1.
+	//LLAPI: Always double check witht the bits map allocation table to avoid conflicts	
+	"OJ,Serial Mode,Off,LLAPI;",
+	//LLAPI
 	"-;",
 	"O[28],FPS Overlay,Off,On;",
 	"O[74],Error Overlay,Off,On;",
@@ -495,6 +504,10 @@ wire [19:0] joy2;
 wire [19:0] joy3;
 wire [19:0] joy4;
 
+//LLAPI
+wire [15:0] joy_usb;
+//LLAPI
+
 wire [10:0] ps2_key;
 
 wire [21:0] gamma_bus;
@@ -533,7 +546,10 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(4), .BLKSZ(3)) hps_io
 	.buttons(buttons),
 	.forced_scandoubler(forced_scandoubler),
 
-	.joystick_0(joy_unmod),
+//	.joystick_0(joy_unmod),
+	//LLAPI
+	.joystick_0(joy_usb),
+    //LLAPI
 	.joystick_1(joy2),
 	.joystick_2(joy3),
 	.joystick_3(joy4),
@@ -583,7 +599,12 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(4), .BLKSZ(3)) hps_io
    .direct_video(DIRECT_VIDEO)
 );
 
-assign joy = joy_unmod[16] ? 20'b0 : joy_unmod;
+//LLAPI
+assign joy_unmod = joy_usb | joy_ll_a | joy_ll_b;
+assign joy = joy_unmod[12] ? 16'b0 : joy_unmod;
+//LLAPI
+
+//assign joy = joy_unmod[16] ? 20'b0 : joy_unmod;
 
 assign sd_rd[0] = 0;
 assign sd_wr[0] = 0;
@@ -1251,6 +1272,136 @@ psx
    .Cheats_BusDone(sdramCh3_done)
 );
 
+////////////////////////////  LLAPI  ///////////////////////////////////
+
+wire [31:0] llapi_buttons, llapi_buttons2;
+wire [71:0] llapi_analog, llapi_analog2;
+wire [7:0]  llapi_type, llapi_type2;
+wire llapi_en, llapi_en2;
+
+wire llapi_select = status[19];
+
+wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
+
+// Indexes:
+// 0 = D+    = P1 Latch
+// 1 = D-    = P1 Data
+// 2 = TX-   = LLAPI Enable
+// 3 = GND_d = N/C
+// 4 = RX+   = P2 Latch
+// 5 = RX-   = P2 Data
+
+//Connection to USER_OUT port
+always_comb begin
+	USER_OUT = 6'b111111;
+	if (llapi_select) begin
+		USER_OUT[0] = llapi_latch_o;
+		USER_OUT[1] = llapi_data_o;
+		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS);//LED on Blister
+		USER_OUT[4] = llapi_latch_o2;
+		USER_OUT[5] = llapi_data_o2;
+	end
+end
+
+//Port 1 conf
+
+LLAPI llapi
+(
+	.CLK_50M(CLK_50M),
+	.LLAPI_SYNC(vbl),
+	.IO_LATCH_IN(USER_IN[0]),
+	.IO_LATCH_OUT(llapi_latch_o),
+	.IO_DATA_IN(USER_IN[1]),
+	.IO_DATA_OUT(llapi_data_o),
+	.ENABLE(llapi_select & ~OSD_STATUS),
+	.LLAPI_BUTTONS(llapi_buttons),
+	.LLAPI_ANALOG(llapi_analog),
+	.LLAPI_TYPE(llapi_type),
+	.LLAPI_EN(llapi_en)
+);
+
+//Port 2 conf
+
+LLAPI llapi2
+(
+	.CLK_50M(CLK_50M),
+	.LLAPI_SYNC(vbl),
+	.IO_LATCH_IN(USER_IN[4]),
+	.IO_LATCH_OUT(llapi_latch_o2),
+	.IO_DATA_IN(USER_IN[5]),
+	.IO_DATA_OUT(llapi_data_o2),
+	.ENABLE(llapi_select & ~OSD_STATUS),
+	.LLAPI_BUTTONS(llapi_buttons2),
+	.LLAPI_ANALOG(llapi_analog2),
+	.LLAPI_TYPE(llapi_type2),
+	.LLAPI_EN(llapi_en2)
+);
+
+//Controller string provided by core for reference (order is important)
+//Controller specific mapping based on type. More info here : https://docs.google.com/document/d/12XpxrmKYx_jgfEPyw-O2zex1kTQZZ-NSBdLO2RQPRzM/edit
+//llapi_Buttons id are HID id - 1
+
+//Port 1 mapping
+
+// "J1,A,B,L,R,Select,Start,Turbo;",
+
+wire [15:0] joy_ll_a;
+always_comb begin
+	// map for saturn controller
+	// use L and R instead of top face buttons
+	// no select button so use Z
+	if (llapi_type == 3 || llapi_type == 8) begin
+		joy_ll_a = { 4'd0,
+			llapi_buttons[5],  llapi_buttons[4],                    // Start Select
+			llapi_buttons[8],  llapi_buttons[9],                    // L2 R2
+			llapi_buttons[6],  llapi_buttons[7],                    // L1 R1
+			llapi_buttons[2],  llapi_buttons[3],                    // △ ○
+			llapi_buttons[0],  llapi_buttons[1],                    // □ × 
+			llapi_buttons[27], llapi_buttons[26], llapi_buttons2[25], llapi_buttons2[24] // d-pad
+		};
+	end else begin
+		joy_ll_a = { 4'd0,
+			llapi_buttons[2],  llapi_buttons[3], // Rewind Fast-Forward
+			llapi_buttons[5],  llapi_buttons[4], // Start Select
+			llapi_buttons[7],  llapi_buttons[6], // RT LT
+			llapi_buttons[0],  llapi_buttons[1], // B A
+			llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] // d-pad
+		};
+	end
+end
+
+//Port 2 mapping
+
+wire [15:0] joy_ll_b;
+always_comb begin
+	// map for saturn controller
+	// use L and R instead of top face buttons
+	// no select button so use Z
+	if (llapi_type2 == 3 || llapi_type2 == 8) begin
+		joy_ll_b = { 4'd0,
+			llapi_buttons2[5],  llapi_buttons2[4],                    // Start Select
+			llapi_buttons2[8],  llapi_buttons2[9],                    // L2 R2
+			llapi_buttons2[6],  llapi_buttons2[7],                    // L1 R1
+			llapi_buttons2[2],  llapi_buttons2[3],                    // △ ○
+			llapi_buttons2[0],  llapi_buttons2[1],                    // □ × 
+			llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // d-pad
+		};
+	end else begin
+		joy_ll_b = { 4'd0,
+			llapi_buttons2[2],  llapi_buttons2[3], // Rewind Fast-Forward
+			llapi_buttons2[5],  llapi_buttons2[4], // Start Select
+			llapi_buttons2[7],  llapi_buttons2[6], // RT LT
+			llapi_buttons2[0],  llapi_buttons2[1], // B A
+			llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // d-pad
+		};
+	end
+end
+
+//Assign (DOWN + FIRST BUTTON) Combinaison to bring the OSD up - P1 and P1 ports.
+//TODO : Support long press detection
+
+wire llapi_osd = (llapi_buttons[26] && llapi_buttons[5] && llapi_buttons[0]) || (llapi_buttons2[26] && llapi_buttons2[5] && llapi_buttons2[0]);
+
 ////////////////////////////  MEMORY  ///////////////////////////////////
 
 localparam ROM_START = (65536+131072)*4;
@@ -1657,254 +1808,6 @@ always_ff @(posedge clk_1x) begin
 				gg_valid          <= 1;          // Clock it in
 			end
 		endcase
-	end
-end
-
-wire clk8Snac;
-wire clk9Snac;
-wire oldClk8;
-wire oldClk9;
-wire selectedPort1Snac;
-wire selectedPort2Snac;
-wire oldselectedPort1;
-wire oldselectedPort2;
-wire [7:0]transmitValueSnac;
-wire [7:0]receiveBufferSnac;
-wire receiveValidSnac;
-wire beginTransferSnac;
-wire actionNextSnac;
-wire actionNextPadSnac;
-reg [7:0]Send;
-reg [7:0]Receive;
-wire Cmd;
-wire Dat;
-wire ack;
-wire oldAck;
-//wire ackSnac;
-wire [15:0]ackTimer;
-wire ackNone;
-wire oneTime;
-wire [3:0]bitCnt;
-wire [8:0]byteCnt;
-wire [8:0]bytesLeft;
-wire [7:0]pad1ID;
-wire [7:0]pad2ID;
-wire [7:0]targetID;
-wire irq10Snac;
-wire csync;
-wire MCtransfer;
-wire PStransfer;
-wire [7:0]PSdatalength;
-
-reg USER_IN3_1;
-reg USER_IN4_1;
-reg USER_IN6_1;
-
-reg USER_IN3_2;
-reg USER_IN4_2;
-reg USER_IN6_2;
-
-reg USER_IN3_3;
-reg USER_IN3_4;
-reg ackglitch;
-
-assign clk8Snac = bitCnt < 8 ? clk9Snac : 1'b1;
-
-always @(posedge clk_1x) 
-begin
-
-   USER_IN3_1 <= USER_IN[3];
-   USER_IN4_1 <= USER_IN[4];
-   USER_IN6_1 <= USER_IN[6];
-   
-   USER_IN3_2 <= USER_IN3_1;
-   USER_IN4_2 <= USER_IN4_1;
-   USER_IN6_2 <= USER_IN6_1;
-
-   USER_IN3_3 <= USER_IN3_2;//glitch filter for ack	
-   USER_IN3_4 <= USER_IN3_3;	
-   ackglitch  <= ~USER_IN3_1 && ~USER_IN3_2 && ~USER_IN3_3 && ~USER_IN3_4 ? 1'b0 : 1'b1;
-
-	if (snacPort1 || snacPort2) begin
-		USER_OUT[0] <= ~selectedPort2Snac;
-		USER_OUT[1] <= ~selectedPort1Snac;
-		USER_OUT[2] <= Cmd;
-		USER_OUT[3] <= 1'b1; //ACK
-		USER_OUT[4] <= 1'b1; //DAT
-		USER_OUT[5] <= oldClk8;	
-		ack         <= ~ackglitch ? USER_IN3_2 : 1'b1;
-		Dat         <= USER_IN4_2;	
-		
-		if ((pad1ID == 8'h63 || pad2ID == 8'h63) && (pad1ID != 8'h31 || pad2ID != 8'h31)) begin //quirk for guncon, irq is N/C in guncon. so using irq line and outputting csync on snac for g-con. only if justifier isn't connected
-			USER_OUT[6] <= ~csync;
-			irq10Snac   <= 1'b0;
-			csync       <= VGA_HS ^ VGA_VS;//real csync shifts HSync during VSync, should be close enough to work	with guncon
-		end
-		else begin
-			USER_OUT[6] <= 1'b1;		
-			irq10Snac   <= ~USER_IN6_2;
-		end
-	end
-	else begin
-		USER_OUT  <= '1;
-		irq10Snac <= 1'b0;
-		ack       <= 1'b1;
-		Dat       <= 1'b1;
-	end
-		
-	oldselectedPort1 <= selectedPort1Snac;
-	oldselectedPort2 <= selectedPort2Snac;
-
-	if ((~oldselectedPort1 && selectedPort1Snac) || (~oldselectedPort2 && selectedPort2Snac)) begin
-		byteCnt <= 9'd0;
-	end
-
-	if (beginTransferSnac) begin
-		bitCnt  <= 4'd0;
-		byteCnt <= byteCnt + 9'd1 ;
-	end
-	
-	oldClk8 <= clk8Snac;
-	oldClk9 <= clk9Snac;
-	
-	if (oldClk9 && ~clk9Snac) begin	//send on falling edge
-		if (bitCnt < 8) begin
-			if (bitCnt==0) begin
-				Cmd  <= transmitValueSnac[0];
-				Send <= {1'b1, transmitValueSnac[7:1]};
-			end
-			else begin
-				Cmd  <= Send[0];
-				Send <= {1'b1, Send[7:1]};
-			end
-		end	
-		else begin
-			Cmd  <= 1'b1;
-			Send <= Send;
-		end
-	end	
-	
-	if(~oldClk8 && clk8Snac) begin //receive on rising edge
-		Receive <= { Dat, Receive[7:1]};
-		bitCnt <= bitCnt + 1'b1;
-		if(bitCnt == 4'd7) begin//check for ack 
-			oneTime <= 1'b1;
-			if (MCtransfer) ackTimer <= 16'd60000;//very late ack after 7th byte. around 56000 cycles (1.7ms) with a sony MC. 3rd party MCs don't seem to do this
-			else begin
-				if (byteCnt == bytesLeft + 3) ackTimer <= 16'd400;//only wait around 150 on last byte
-				else ackTimer <= 16'd1800;//1st byte of multitap(1375) cycles to ack,digital(460),analog(350-400),ds2(250-400),mouse(120),guncon(270)
-			end
-		end	
-	end
-
-	if (ackTimer > 0) begin
-		ackTimer <= ackTimer - 16'd1;
-	end	
-	
-	oldAck <= ack;
-	if(oldAck && ~ack) begin //ack received
-		actionNextPadSnac <= 1'b1;
-		ackTimer <= 16'd255;//a delay between ack and next action. too small might cause a hang. using acktimer 1-255
-	end
-	else if(ackTimer == 1) begin //wait over
-		actionNextPadSnac <= 1'b1;
-		oneTime <= 1'b0;		
-	end
-	else if (ackTimer == 16'd258) begin //no ack
-		ackNone <= 1'b1;
-		actionNextPadSnac <= 1'b1;
-	end
-	else if (ackTimer == 16'd256) begin //reset if no ack
-		oneTime <= 1'b0;
-		ackTimer <= 16'd0;
-	end	
-	else begin
-		actionNextPadSnac <= 1'b0;
-		ackNone <= 1'b0;
-	end
-		
-	if (actionNextPadSnac && ((snacPort1 && selectedPort1Snac) || (snacPort2 && selectedPort2Snac))) begin //logic for joypad.vhd
-		if (oneTime) begin
-			if (ackNone) begin
-				if (byteCnt < (bytesLeft + 4)) begin // no ack on last byte of transfer
-					receiveBufferSnac <= Receive;
-					receiveValidSnac <= 1'b1;
-					actionNextSnac <= 1'b1;
-				end
-				else
-					actionNextSnac <= 1'b1;
-				end	
-			else begin
-				if (byteCnt < 3) begin
-					receiveBufferSnac <= Receive;
-					receiveValidSnac <= 1'b1;
-					//ackSnac <= 1'b1;
-				end
-				else begin
-					if (byteCnt < (bytesLeft + 4)) begin
-						receiveBufferSnac <= Receive;
-						receiveValidSnac <= 1'b1;
-						//ackSnac <= 1'b1;
-					end
-				end
-				actionNextSnac <= 1'b1;	
-			end
-		end
-		else begin
-			actionNextSnac <= 1'b1;	
-		end
-	end	
-	else begin
-		receiveBufferSnac <= 8'd0;
-		receiveValidSnac <= 1'b0;
-		actionNextSnac <= 1'b0;
-		//ackSnac <= 1'b0;
-	end	
-	
-	if (receiveValidSnac) begin
-		if (byteCnt == 1) begin
-			targetID <= transmitValueSnac;
-		end
-		if (byteCnt == 2) begin 
-			if (targetID == 8'h81 || targetID == 8'h82 || targetID == 8'h83 || targetID == 8'h84) begin 	//memcard quirks
-				MCtransfer <= 1'b1;
-				if (transmitValueSnac == 8'h52) bytesLeft <= 9'd137;//read
-				if (transmitValueSnac == 8'h57) bytesLeft <= 9'd135;//write
-				if (transmitValueSnac == 8'h53) bytesLeft <= 9'd7;//ID Cmd
-				//pocketstation
-				if (transmitValueSnac == 8'h50) bytesLeft <= 9'd0;//Change a FUNC 03h related value
-				if (transmitValueSnac == 8'h58) bytesLeft <= 9'd2;//Get an ID or Version value
-				if (transmitValueSnac == 8'h59) bytesLeft <= 9'd6;//Prepare File Execution with Dir_index, and Parameter
-				if (transmitValueSnac == 8'h5A) bytesLeft <= 9'd18;//Get Dir_index, ComFlags, F_SN, Date, and Time
-				if (transmitValueSnac == 8'h5D) bytesLeft <= 9'd3;//Execute Custom Download Notification					
-				if (transmitValueSnac == 8'h5E) bytesLeft <= 9'd3;//Get-and-Send ComFlags.bit1,3,2
-				if (transmitValueSnac == 8'h5F) bytesLeft <= 9'd1;//Get-and-Send ComFlags.bit0				
-				if (transmitValueSnac == 8'h5B) begin//Execute Function and transfer data from Pocketstation to PSX--variable length
-					bytesLeft <= 9'd3;
-					PStransfer <= 1'b1;
-				end	
-				if (transmitValueSnac == 8'h5C) begin//Execute Function and transfer data from PSX to Pocketstation--variable length
-					bytesLeft <= 9'd3;
-					PStransfer <= 1'b1;
-				end
-			end 
-			else begin //joypad quirks
-				MCtransfer <= 1'b0;
-				if (selectedPort1Snac) pad1ID <= Receive;
-				if (selectedPort2Snac) pad2ID <= Receive;
-
-				if (Receive == 8'h80) bytesLeft <= 9'd32; //for multitap
-				else bytesLeft <= {5'd0, (Receive[3:0] + Receive[3:0])};	
-			end
-		end
-		if (byteCnt == 4 && PStransfer == 1) begin //for pocketstation
-			bytesLeft <= bytesLeft + Receive;
-			PSdatalength <=  Receive;
-		end
-		if ((byteCnt == PSdatalength + 5) && PStransfer == 1) begin 
-			bytesLeft <= bytesLeft + Receive;
-			PStransfer <= 1'b0;
-		end		
 	end
 end
 
