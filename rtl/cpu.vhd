@@ -13,7 +13,6 @@ entity cpu is
       clk2x                 : in  std_logic;
       clk3x                 : in  std_logic;
       ce                    : in  std_logic;
-      ce_system             : in  std_logic;
       reset                 : in  std_logic;
       
       TURBO                 : in  std_logic;
@@ -21,7 +20,8 @@ entity cpu is
       TURBO_CACHE50         : in  std_logic;
       
       irqRequest            : in  std_logic;
-      dmaRequest            : in  std_logic;
+      dmaStallCPU           : in  std_logic;
+      cpuPaused             : in  std_logic;
       
       error                 : out std_logic := '0';
       error2                : out std_logic := '0';
@@ -52,6 +52,7 @@ entity cpu is
       dma_cache_write       : in  std_logic;
       
       ram_done              : in  std_logic;
+      ram_rnw               : in  std_logic;
       ram_dataRead          : in  std_logic_vector(31 downto 0); 
       
       gte_busy              : in  std_logic;
@@ -410,6 +411,8 @@ architecture arch of cpu is
    signal lateReadBypass               : std_logic := '0';
    signal lateReadReqDone              : std_logic := '0';
    signal lateReadWriteAfterWrite      : std_logic := '0';
+   signal lateReadStall                : std_logic := '0';
+   signal lateReadRam                  : std_logic := '0';
          
    -- wire     
    signal mem4_request                 : std_logic := '0';
@@ -477,7 +480,7 @@ begin
    stallNext         <= mem_request or stallNew3;
 
    -- common
-   stall        <= dmaRequest & stall4 & stall3 & stall2 & stall1;
+   stall        <= dmaStallCPU & stall4 & stall3 & stall2 & stall1;
 
    exceptionNew <= exceptionNew5 & '0' & exceptionNew3 & '0' & exceptionNew1;
    
@@ -1094,8 +1097,10 @@ begin
    process (decodeImmData, decodeTarget, decodeJumpTarget, decodeSource1, decodeSource2, decodeValue1, decodeValue2, decodeOP, decodeFunct, decodeShamt, decodeRD, exception, stall3, stall, value1, value2, pcOld0, resultData, executeStalltype,
             cop0_BPC, cop0_BDA, cop0_JUMPDEST, cop0_DCIC, cop0_BADVADDR, cop0_BDAM, cop0_BPCM, cop0_SR, cop0_CAUSE, cop0_EPC, cop0_PRID, PC, hi, lo, hiloWait, 
             opcode1, gte_readAddr, decode_gte_readAddr, gte_readData, gte_busy, execute_gte_cmdEna, ce, execute_gte_readAddr)
-      variable calcResult  : unsigned(31 downto 0);
-      variable calcMemAddr : unsigned(31 downto 0);
+      variable calcResult   : unsigned(31 downto 0);
+      variable calcMemAddr  : unsigned(31 downto 0);
+      variable executeShamt : unsigned(4 downto 0) := (others => '0');
+      variable shiftValue   : signed(32 downto 0) := (others => '0');
    begin
    
       branch                  <= '0';
@@ -1154,6 +1159,17 @@ begin
          gte_readEna         <= '1';
          gte_readAddr        <= execute_gte_readAddr;
       end if;
+      
+      -- multiplex immidiate and register based shift amount, so both types can use the same shifters
+      executeShamt := decodeShamt;
+      if (decodeFunct(2) = '1') then
+         executeShamt := value1(4 downto 0);
+      end if;
+      -- multiplex high bit of rightshift so arithmetic shift can be reused for logical shift
+      shiftValue := '0' & signed(value2);
+      if (decodeFunct(0) = '1') then
+         shiftValue(32) := value2(31); 
+      end if;
 
       if (exception(4 downto 2) = 0 and stall = 0) then
              
@@ -1162,29 +1178,13 @@ begin
             when 16#00# =>
                case (to_integer(decodeFunct)) is
          
-                  when 16#00# => -- SLL
+                  when 16#00# | 16#04# => -- SLL | SLLV
                      EXEresultWriteEnable <= '1';
-                     EXEresultData        <= value2 sll to_integer(decodeShamt);
-                    
-                  when 16#02# => -- SRL
-                     EXEresultWriteEnable <= '1';
-                     EXEresultData        <= value2 srl to_integer(decodeShamt);  
-                  
-                  when 16#03# => -- SRA
-                     EXEresultWriteEnable <= '1';              
-                     EXEresultData        <= unsigned(shift_right(signed(value2),to_integer(decodeShamt)));            
+                     EXEresultData        <= value2 sll to_integer(executeShamt);
 
-                  when 16#04# => -- SLLV
+                  when 16#02# | 16#03# | 16#06# | 16#07# => -- SRL | SRA | SRLV | SRAV
                      EXEresultWriteEnable <= '1';
-                     EXEresultData        <= value2 sll to_integer(value1(4 downto 0));        
-
-                  when 16#06# => -- SRLV
-                     EXEresultWriteEnable <= '1';
-                     EXEresultData        <= value2 srl to_integer(value1(4 downto 0));     
-
-                  when 16#07# => -- SRAV
-                     EXEresultWriteEnable <= '1';
-                     EXEresultData        <= unsigned(shift_right(signed(value2),to_integer(value1(4 downto 0))));                        
+                     EXEresultData        <= resize(unsigned(shift_right(shiftValue,to_integer(executeShamt))), 32);                        
                     
                   when 16#08# => -- JR 
                      EXEBranchdelaySlot <= '1';
@@ -2051,7 +2051,7 @@ begin
    
    
    -- datacache ###############################################
-   dcache_write_enable <= '1' when (ram_done = '1' and mem4_pending = '1' and writebackReadAddress(28 downto 0) < 16#800000#) else 
+   dcache_write_enable <= '1' when (ram_done = '1' and ram_rnw = '1' and mem4_pending = '1' and writebackReadAddress(28 downto 0) < 16#800000#) else 
                           '1' when (mem4_request = '1' and mem4_rnw = '0') else 
                           '1' when (dma_cache_write = '1') else
                           '0';
@@ -2256,7 +2256,7 @@ begin
    begin
       if (rising_edge(clk1x)) then
       
-         if (ce_system = '1') then
+         if (ce = '1') then
             gte_writeEna  <= '0';
             gte_cmdEna    <= '0';
          end if;
@@ -2297,14 +2297,35 @@ begin
             writebackInvalidateCacheEna  <= WBinvalidateCacheEna; 
             writebackInvalidateCacheLine <= WBinvalidateCacheLine;   
             
+            if (lateReadBypass = '1' and stall4 = '0') then
+               lateReadRam <= '0';
+            end if;
+            
             lateReadReqDone <= '0';
             if (mem4_request = '1' and mem4_rnw = '1') then
                lateReadReqDone <= '1';
+
+               -- need to compensate for timing in original design on back to back reads:
+               -- this is due to unclear reason why the original design is slower here than it could be
+               if (lateReadBypass = '1') then
+                  -- one additional wait cycle if target of first read is to be used after second read
+                  if ((decodeReqSource1 = '1' and decodeSource1 = lateReadTarget) or (decodeReqSource2 = '1' and decodeSource2 = lateReadTarget)) then
+                     lateReadStall <= not TURBO;
+                  end if;
+                  -- one additional wait cycle if target of both reads is the same and goes to ram
+                  if (resultTarget = lateReadTarget and executeReadAddress(28 downto 0) < 16#800000# and lateReadRam = '1') then
+                     lateReadStall <= not TURBO;
+                  end if;
+               end if;
+               if (executeReadAddress(28 downto 0) < 16#800000#) then
+                  lateReadRam <= '1';
+               end if;
             end if;
             
             if (resultWriteEnable = '1' and mem4_pending = '1' and resultTarget = lateReadTarget) then
                lateReadWriteAfterWrite <= '1';
             end if;
+            
             
             if (stall = 0) then
             
@@ -2433,7 +2454,10 @@ begin
             else
 
                if (mem_fifofull = '0' and mem4_pending = '0') then
-                  stall4 <= '0';
+                  lateReadStall <= '0';
+                  if (lateReadStall = '0') then
+                     stall4 <= '0';
+                  end if;
                end if;
                
                lateReadWrite <= '0';
@@ -2453,6 +2477,8 @@ begin
                   if (lateReadTarget > 0 and lateReadWriteAfterWrite = '0') then
                      if (resultWriteEnable = '0' or resultTarget /= lateReadTarget) then -- write after write in same cycle -> ignore
                         lateReadWrite <= '1';
+                     else
+                        lateReadRam   <= '0';
                      end if;
                   end if;
 
@@ -2790,7 +2816,7 @@ begin
          
             if (stall = 0) then
                debugStallcounter <= (others => '0');
-            else  
+            elsif (cpuPaused = '0') then  
                debugStallcounter <= debugStallcounter + 1;
             end if;
             

@@ -108,7 +108,9 @@ architecture arch of cd_top is
    signal pendingDriveIRQ           : std_logic_vector(4 downto 0);
    signal pendingDriveResponse      : std_logic_vector(7 downto 0);
    signal ackPendingIRQ             : std_logic := '0';
+   signal ackPendingSector          : std_logic := '0';
    signal ackRead_valid             : std_logic := '0';
+   signal irqTimeout                : integer range 0 to 10000 := 0;
             
    signal FifoParam_reset           : std_logic := '0';
    signal FifoParam_Din             : std_logic_vector(7 downto 0) := (others => '0');
@@ -161,6 +163,7 @@ architecture arch of cd_top is
    signal CDDA_outcnt               : integer range 0 to 8;
       
    signal seekOnDiskCmd             : std_logic := '0';
+   signal stop_afterseek            : std_logic := '0';
    signal setMode                   : std_logic := '0';
    signal newMode                   : std_logic_vector(7 downto 0);
    signal readSN                    : std_logic := '0';
@@ -221,9 +224,9 @@ architecture arch of cd_top is
    signal seekOnDiskDrive           : std_logic := '0';
    signal seekOnDiskPlay            : std_logic := '0';
    signal ackRead                   : std_logic := '0';
-   signal pause_cmd                 : std_logic := '0';
    signal calcSeekTime              : std_logic := '0';
    signal addSeekTime               : std_logic := '0';
+   signal limitDelayTime            : std_logic := '0';
          
    signal currentLBA                : integer range 0 to 524287;        
    signal physicalLBA               : integer range 0 to 524287;        
@@ -349,6 +352,8 @@ architecture arch of cd_top is
    type tsectorBufferSizes is array(0 to 7) of integer range 0 to 588;
    signal sectorBufferSizes         : tsectorBufferSizes;
    
+   signal sectorBufferFilled        : std_logic := '0';
+   
    signal sectorBuffers_addrA       : std_logic_vector(12 downto 0) := (others => '0');
    signal sectorBuffers_DataA       : std_logic_vector(31 downto 0) := (others => '0');
    signal sectorBuffers_wrenA       : std_logic;
@@ -375,6 +380,7 @@ architecture arch of cd_top is
    signal XA_reset                  : std_logic := '0';
    signal XA_EOF                    : std_logic := '0';
    signal xa_muted                  : std_logic;
+   signal Xa_playing                : std_logic;
    signal cdaudio_left              : signed(15 downto 0);
    signal cdaudio_right             : signed(15 downto 0);
    
@@ -518,7 +524,6 @@ begin
    
    -- cpu interface
    process(clk1x)
-      variable newFlags : std_logic_vector(4 downto 0);
    begin
       if (rising_edge(clk1x)) then
       
@@ -528,7 +533,9 @@ begin
       
          if (reset = '1') then
             
-            FifoData_reset <= '1';
+            FifoData_reset  <= '1';
+            
+            irqTimeout      <= 0;
             
             CDROM_STATUS    <= ss_in(21)(7 downto 0); -- x"18";
             CDROM_IRQENA    <= ss_in(21)(12 downto 8); -- (others => '0');
@@ -551,8 +558,9 @@ begin
             irqOut            <= '0';
             ackRead_valid     <= '0';
             ackPendingIRQ     <= '0';
+            ackPendingSector  <= '0';
             copyData          <= '0';
-            cmd_unpause       <= '0';
+
          
             CDROM_STATUS(2) <= '0';                      -- ADPBUSY XA-ADPCM fifo empty  (0=Empty) ;set when playing XA-ADPCM sound -> not used in duckstation
             CDROM_STATUS(3) <= FifoParam_Empty;          -- PRMEMPT Parameter fifo empty (1=Empty) ;triggered before writing 1st byte
@@ -596,17 +604,7 @@ begin
                               CDROM_IRQENA <= bus_dataWrite(4 downto 0);
                               
                            when x"3" =>
-                              newFlags := CDROM_IRQFLAG and (not bus_dataWrite(4 downto 0));
-                              CDROM_IRQFLAG <= newFlags;
-                              if (newFlags = "00000") then
-                                 if (pendingDriveIRQ /= "00000") then
-                                    ackPendingIRQ   <= '1';
-                                 else
-                                    if (cmd_delay > 0) then
-                                       cmd_unpause <= '1';
-                                    end if;
-                                 end if;
-                              end if;
+                              CDROM_IRQFLAG <= CDROM_IRQFLAG and (not bus_dataWrite(4 downto 0));
                               if (bus_dataWrite(6) = '1') then
                                  --todo: clear param fifo
                               end if;
@@ -674,6 +672,17 @@ begin
                end case;
             end if;
             
+            if (CDROM_IRQFLAG /= "00000") then
+               irqTimeout <= 0;
+            elsif (irqTimeout < 10000) then
+               irqTimeout <= irqTimeout + 1;
+            elsif (pendingDriveIRQ /= "00000" and ackPendingIRQ = '0' and ackPendingIRQNext = '0') then
+               ackPendingIRQ   <= '1';
+               if (pendingDriveIRQ = "00001") then
+                  ackPendingSector <= '1';
+               end if;
+            end if;
+            
             if (cmdAck = '1' or cmdIRQ = '1') then
                CDROM_IRQFLAG <= "00011";
                if (CDROM_IRQENA(1 downto 0) /= "00") then
@@ -707,8 +716,8 @@ begin
             
             if (ackRead = '1' or ackRead_data = '1') then
                if (CDROM_IRQFLAG = "00001") then -- irq for sector still pending, sector missed
-                  -- todo: nothing can be done?
-               elsif (CDROM_IRQFLAG /= "00000") then -- todo: store failed sector read as additional irq? duckstation does it, THPS2 expects it to not happen
+                  -- will be handled when next sector is fetched from cpu interface
+               elsif (CDROM_IRQFLAG /= "00000") then -- store sector done if current irq is something else, so CPU will be notified later
                   pendingDriveIRQ      <= "00001";
                   pendingDriveResponse <= internalStatus;
                else
@@ -857,6 +866,7 @@ begin
             getIDAck                <= '0';
             softReset               <= '0';
             seekOnDiskCmd           <= '0';
+            stop_afterseek          <= '0';
             setMode                 <= '0';
             readSN                  <= '0';
             play                    <= '0';
@@ -921,29 +931,22 @@ begin
                      updatePhysicalPosition <= '1';
                   end if;
                   
-                  -- queue up new commands if irq is still pending,
-                  -- but not for reset with second response pending, otherwise will end in endless reset request loop(e.g. Gouketuji Ichizoku 2)
-                  if (CDROM_IRQFLAG /= "00000" and (CDROM_IRQFLAG /= "00010" or newCmd /= x"0A")) then
-                     cmd_busy  <= '0';
-                  end if;
-                  
                end if;
          
-            elsif (pause_cmd = '1') then
-               cmd_busy  <= '0';
-               if (cmd_busy = '1') then
-                  cmd_delay <= cmd_delay + 2;
-               end if;
-            elsif (cmd_unpause = '1') then
-               cmd_busy <= '1';
             elsif (cmd_busy = '1') then
-               if (cmd_delay > 0) then
-                  if (cmd_delay < 16 or ((driveBusy = '0' or driveDelay > 100) and (working = '0' or workDelay > 100))) then
-                     cmd_delay <= cmd_delay - 1;
+               if (CDROM_IRQFLAG /= "00000" or dma_read = '1') then
+                  if (cmd_delay < 8192) then
+                     cmd_delay <= 8192;
                   end if;
                else
-                  handleCommand <= '1';
-                  cmd_busy      <= '0';
+                  if (cmd_delay > 0) then
+                     if (cmd_delay < 16 or ((driveBusy = '0' or driveDelay > 100) and (working = '0' or workDelay > 100))) then
+                        cmd_delay <= cmd_delay - 1;
+                     end if;
+                  else
+                     handleCommand <= '1';
+                     cmd_busy      <= '0';
+                  end if;
                end if;
             end if;
             
@@ -1092,20 +1095,21 @@ begin
                         workCommand <= nextCmd;
                         cmdResetXa  <= '1';
                         if (driveState = DRIVE_READING or driveState = DRIVE_PLAYING) then
+                           -- todo: should this be swapped between single speed and double speed? DuckStation has double speed longer and psx spx doc has single speed being longer
                            if (modeReg(7) = '1') then
-                              workDelay  <= 2000000 - 2;
+                              workDelay  <= 2157295 + driveDelay; -- value from psx spx doc
                            else
-                              workDelay  <= 1000000 - 2;
+                              workDelay  <= 1066874 + driveDelay; -- value from psx spx doc
                            end if;
                         end if;
                         if (driveState = DRIVE_SEEKLOGICAL or driveState = DRIVE_SEEKPHYSICAL or driveState = DRIVE_SEEKIMPLICIT) then
                            -- todo: complete seek?
+                           stop_afterseek <= '1';
                         else
                            drive_stop <= '1';
                         end if;
                      
                      when x"0A" => -- reset
-                        cmdAck <= '1';
                         if (working = '1' and workCommand = x"0A") then
                            cmdPending <= '0';
                         else
@@ -1114,6 +1118,7 @@ begin
                            --{
                            --   updatePositionWhileSeeking();
                            --}
+                           cmdAck      <= '1';
                            softReset   <= '1';
                            working     <= '1';
                            workDelay   <= workDelay + 399999; -- cannot ignore old workdelay, otherwise reset after pause is too fast(e.g. GTA PAL)
@@ -1346,7 +1351,6 @@ begin
                      end if;
                      getIDAck <= '1';
                   else
-                     cmd_busy <= '0';
                      driveAck <= '1';
                   end if;
                end if;
@@ -1701,8 +1705,6 @@ begin
             startMotorReset        <= '0'; 
             startMotor             <= '0';
          end if;
-         
-         error  <= '0';
 
          if (reset = '1') then
             
@@ -1740,6 +1742,7 @@ begin
             addSeekTime   <= '0';
             
             allow_speedhack <= '0';
+            Xa_playing      <= '0';
             
          elsif (softReset = '1') then
          
@@ -1766,7 +1769,8 @@ begin
                end if;  
 
                if (INSTANTSEEK = '0') then
-                  calcSeekTime <= '1';   
+                  calcSeekTime   <= '1';   
+                  limitDelayTime <= '0';
                end if;
                diffLBA <= currentLBA;
             
@@ -1788,7 +1792,6 @@ begin
             startReading            <= '0';
             startPlaying            <= '0';
             ackRead                 <= '0';
-            pause_cmd               <= '0';
             processDataSector       <= '0';
             processCDDASector       <= '0';
             processSeekHeader       <= '0';
@@ -1804,10 +1807,21 @@ begin
             if ((driveState /= DRIVE_READING and startReading = '0') or XA_write = '1' or mdec_idle = '0') then
                allow_speedhack <= '0';
             end if;
+            
+            if (XA_reset = '1') then
+               Xa_playing <= '0';
+            elsif (XA_start = '1') then
+               Xa_playing <= '1';
+            end if;
+            
+            sectorBufferFilled <= '0';
+            if (driveState = DRIVE_READING and sectorBufferSizes(to_integer((writeSectorPointer + 4))) /= 0) then -- allow up to 4 buffers to be filled
+               sectorBufferFilled <= not Xa_playing;
+            end if;
          
             if (driveBusy = '1') then
                if (driveDelay > 0) then
-                  if ((LIMITREADSPEED = '0' or CDROM_IRQFLAG = "00000") or driveDelay > 8191) then
+                  if ((sectorBufferFilled = '0' and LIMITREADSPEED = '0') or CDROM_IRQFLAG = "00000" or driveDelay > 8191) then
                      if (sectorFetchState = SFETCH_IDLE or driveDelay > 127) then -- make sure to stop drive countdown if data isn't ready early enough so commands are still possible
                         driveDelay <= driveDelay - 1;
                      end if;
@@ -1864,6 +1878,7 @@ begin
                            allow_speedhack   <= '1';
                            afterSeek         <= '1';
                            readAfterSeek     <= '0';
+                           internalStatus(6) <= '1'; -- keep seek on until read is active
                         elsif (playAfterSeek = '1') then
                            startPlaying  <= '1';
                            afterSeek     <= '1';
@@ -1904,10 +1919,10 @@ begin
                               processDataSector     <= '1';
                               lastSectorHeaderValid <= '1';
                               internalStatus(5)     <= '1'; -- reading
+                              internalStatus(6)     <= '0'; -- seek off
                               if ((modeReg(6) = '0' or headerIsData = '1') and (modeReg(5) = '1' or headerDataSector = '1')) then
                                  writeSectorPointer    <= writeSectorPointer + 1;
                                  ackRead               <= '1';
-                                 pause_cmd             <= '1'; -- todo: really pause/stop all commands here and only reactivate on cpu request?
                               end if;
                            elsif (isAudio = '1' and (driveState = DRIVE_PLAYING or (driveState = DRIVE_READING and modeReg(0) = '1'))) then
                               processCDDASector <= '1';
@@ -1980,11 +1995,14 @@ begin
                internalStatus(6)          <= '1'; -- seeking
                driveDelay                 <= driveREADSPEED - 2;
                driveDelayNext             <= driveREADSPEED - 2;
+               
+               limitDelayTime             <= '0';
 
                if (INSTANTSEEK = '0') then
                   calcSeekTime <= '1';
                   if (driveState = DRIVE_SEEKLOGICAL or driveState = DRIVE_SEEKPHYSICAL or driveState = DRIVE_SEEKIMPLICIT) then
-                     driveDelay <= driveREADSPEED - 2 + driveDelay;
+                     driveDelay     <= driveREADSPEED - 2 + driveDelay;
+                     limitDelayTime <= '1';
                   elsif (driveState = DRIVE_SPEEDCHANGEORTOCREAD and (seekOnDiskPlay = '0' and playAfterSeek = '0')) then
                      driveDelay <= driveREADSPEED - 2 + driveDelay;
                   end if; 
@@ -1997,6 +2015,11 @@ begin
                   driveState  <= DRIVE_SEEKPHYSICAL;
                end if;
             end if;    
+            
+            if (stop_afterseek = '1') then
+               readAfterSeek <= '0';
+               playAfterSeek <= '0';
+            end if;
             
             if (calcSeekTime = '1') then
             
@@ -2020,7 +2043,11 @@ begin
             end if;
             
             if (addSeekTime = '1') then
-               driveDelay     <= driveDelay + driveREADSPEED * seekTimeMul;
+               if (limitDelayTime = '1' and (driveDelay + driveREADSPEED * seekTimeMul) > 22880000) then -- max seek time
+                  driveDelay <= 22880000;
+               else
+                  driveDelay <= driveDelay + driveREADSPEED * seekTimeMul;
+               end if;
             end if;
             
             if (readSN = '1') then
@@ -2032,6 +2059,7 @@ begin
                   readAfterSeek     <= '1';
                   playAfterSeek     <= '0';
                else
+                  internalStatus(7 downto 5) <= "000"; -- ClearActiveBits
                   startReading      <= '1';
                   allow_speedhack   <= '1';
                   afterSeek         <= '0';
@@ -2070,7 +2098,6 @@ begin
                   readAfterSeek     <= '1';
                   playAfterSeek     <= '0';
                else
-                  internalStatus(7 downto 5) <= "000"; -- ClearActiveBits
                   internalStatus(1)          <= '1'; -- motor on
                   if (fastCD = '1') then
                      driveDelay         <= 9999 - 2;
@@ -2092,7 +2119,8 @@ begin
                      elsif (driveState = DRIVE_SPEEDCHANGEORTOCREAD) then
                         driveDelay  <= driveREADSPEED - 2 + driveDelay;
                      end if;
-                     addSeekTime <= '1';
+                     addSeekTime    <= '1';
+                     limitDelayTime <= '0';
                   end if;
                end if;
             end if;
@@ -2125,7 +2153,8 @@ begin
                      if (driveState = DRIVE_SEEKLOGICAL or driveState = DRIVE_SEEKPHYSICAL or driveState = DRIVE_SEEKIMPLICIT) then
                         driveDelay <= driveREADSPEED - 2 + driveDelay;
                      end if;
-                     addSeekTime <= '1';
+                     addSeekTime    <= '1';
+                     limitDelayTime <= '0';
                   end if;
                end if;
             end if;
@@ -2159,8 +2188,8 @@ begin
                internalStatus(4) <= '0';
             end if;
             
-            if (ackRead_valid = '1' or ackPendingIRQ = '1') then
-               readSectorPointer <= writeSectorPointer;
+            if (ackRead_valid = '1' or ackPendingSector = '1') then
+               readSectorPointer <= readSectorPointer + 1;
             end if;
             
             if (startMotorCMD = '1') then
@@ -2337,6 +2366,8 @@ begin
          
          sectorBuffer_wrenA  <= '0';
          sectorBuffers_wrenA <= '0';
+         
+         error               <= '0';
          
          pauseCD <= '0';
          if (pauseOnCDSlow = '1') then
@@ -2692,6 +2723,9 @@ begin
                when SPROC_FIRST =>
                   sectorProcessState <= SPROC_DATA;
                   procReadAddr <= procReadAddr + 1;
+                  if (sectorBufferSizes(to_integer(writeSectorPointer)) /= 0) then
+                     --error <= '1';
+                  end if;
                   sectorBufferSizes(to_integer(writeSectorPointer)) <= procSize;
                
                when SPROC_DATA =>
@@ -3015,7 +3049,7 @@ begin
                if (to_integer(unsigned(trackinfo_addr)) = 3) then
                   libcryptKey <= trackinfo_data(15 downto 0);
                   region_out  <= trackinfo_data(17 downto 16);
-                  resetFromCD <= trackinfo_data(18);
+                  resetFromCD <= trackinfo_data(18) and (not LIDopen);
                end if;
             
                -- tracks
@@ -3301,20 +3335,20 @@ begin
             end if; 
             
             if (processDataSector = '1' and (modeReg(6) = '0' or headerIsData = '1') and (modeReg(5) = '1' or headerDataSector = '1')) then
-               write(line_out, string'("WPTR: "));
-               if (WRITETIME = '1') then
-                  write(line_out, to_hstring(clkCounter - 4));
-                  write(line_out, string'(" ")); 
-               end if;
-               if (modeReg(5) = '1') then
-                  write(line_out, string'("24"));
-               else
-                  write(line_out, string'("00"));
-               end if;
-               write(line_out, string'(" 000000"));
-               write(line_out, to_hstring("00000" & writeSectorPointer));               
-               writeline(outfile, line_out);
-               newoutputCnt := newoutputCnt + 1;
+                write(line_out, string'("WPTR: "));
+                if (WRITETIME = '1') then
+                   write(line_out, to_hstring(clkCounter - 4));
+                   write(line_out, string'(" ")); 
+                end if;
+                if (modeReg(5) = '1') then
+                   write(line_out, string'("24"));
+                else
+                   write(line_out, string'("00"));
+                end if;
+                write(line_out, string'(" 000000"));
+                write(line_out, to_hstring("00000" & writeSectorPointer));               
+                writeline(outfile, line_out);
+                newoutputCnt := newoutputCnt + 1;
             end if; 
             
             if (copyState = COPY_FIRST) then

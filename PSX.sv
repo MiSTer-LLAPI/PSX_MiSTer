@@ -55,6 +55,8 @@ module emu
 	output        VGA_SCALER, // Force VGA scaler
 	output        VGA_DISABLE, // analog out is off
 
+	output        resSwitchBlackout,
+
 	input  [11:0] HDMI_WIDTH,
 	input  [11:0] HDMI_HEIGHT,
    output        HDMI_FREEZE,
@@ -195,14 +197,15 @@ assign VGA_SCALER= 0;
 
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
+wire [ 3:0] frameindex;
 wire [11:0] DisplayWidth;
 wire [11:0] DisplayHeight;
 wire [ 9:0] DisplayOffsetX;
 wire [ 8:0] DisplayOffsetY;
 
-assign FB_BASE    = status[11] ? 32'h30000000 : (32'h30000000 + (DisplayOffsetX * 2) + (DisplayOffsetY * 2048));
-assign FB_EN      = status[14];
-assign FB_FORMAT  = status[10] ? 5'b00101 : 5'b01100;
+assign FB_BASE    = status[11] ? 32'h30000000 : {8'h30, frameindex, DisplayOffsetY, DisplayOffsetX, 1'b0};
+assign FB_EN      = (status[14] || video_fbmode);
+assign FB_FORMAT  = (status[10] || video_fb24) ? 5'b00101 : 5'b01100;
 assign FB_WIDTH   = status[11] ? 12'd1024 : DisplayWidth;
 assign FB_HEIGHT  = status[11] ? 12'd512  : DisplayHeight;
 assign FB_STRIDE  = 14'd2048;
@@ -342,10 +345,10 @@ wire reset_or = RESET | buttons[1] | status[0] | bios_download | exe_download | 
 ////////////////////////////  HPS I/O  //////////////////////////////////
 
 // Status Bit Map: (0..31 => "O", 32..63 => "o")
-// 0         1         2         3          4         5         6            7         8         9
+// 0         1         2         3          4         5         6          7         8         9
 // 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV 
-//  X XX XXXXXX XXXXXX XXXXX XXX XX XXXXXXXXXXXXXXXXXXXXXXXX  XXX XX XXXXXXXXXXXXXXXXXXX
+//  XXXX XXXXXX XXXXXX XXXXX  XX XX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 `include "build_id.v"
 parameter CONF_STR = {
@@ -354,6 +357,12 @@ parameter CONF_STR = {
 	"h7-,Reload core for CD;",
 	"F1,EXE,Load Exe;",
 	"-;",
+	//LLAPI: OSD menu item
+	//LLAPI Always ON
+	"-,<< LLAPI enabled >>;",
+	"-,<< Use USER I/O port >>;",
+	"-;",
+	//END LLAPI	
 	"d6C,Cheats;",
 	"h6O[6],Cheats Enabled,Yes,No;",
 	"-;",
@@ -374,15 +383,14 @@ parameter CONF_STR = {
 	"-;",
 	"O[40:39],System Type,Auto,NTSC-U,NTSC-J,PAL;",
 	"-;",
-	"D8O[48:45],Pad1,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,Analog Joystick;",
-	"D8O[52:49],Pad2,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,Analog Joystick;",
+	"D8O[48:45],Pad1,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,SNAC-port1,Analog Joystick,Pop'n;",
+	"D8O[52:49],Pad2,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,SNAC-port2,Analog Joystick,Pop'n;",
+	"D8h0O[66],SNAC MemCard,Virtual,Real;",
 	"D8h2O[9],Show Crosshair,Off,On;",
 	"D8h4O[31],DS Mode,L3+R3+Up/Dn | Click,L1+L2+R1+R2+Up/Dn;",
-	"O[66],Multitap,Off,Port1: 4 x Digital;",
-	"-;",
-	//LLAPI: OSD menu item. swapped NONE with LLAPI. To detect LLAPI, status[19] = 1.
-	//LLAPI: Always double check witht the bits map allocation table to avoid conflicts	
-	"OJ,Serial Mode,Off,LLAPI;",
+	"O[57:56],Multitap,Off,Port1: 4 x Digital,Port1: 4 x Analog;",
+	//LLAPI: Disable SNAC
+	//"OJ,Serial Mode,Off,On;",
 	//LLAPI
 	"-;",
 	"O[28],FPS Overlay,Off,On;",
@@ -396,18 +404,23 @@ parameter CONF_STR = {
 	"P1O[33:32],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"P1O[35:34],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"P1-;",
-	"P1O[62],Fixed HBlank,On,Off;",
-	"P1O[55],Fixed VBlank,Off,On;",
+	"DEP1O[62],Fixed HBlank,On,Off;",
+	"DEP1O[55],Fixed VBlank,Off,On;",
 	"d5P1O[4:3],Vertical Crop,Off,On(224/270),On(216/256);",
 	"P1O[67],Horizontal Crop,Off,On;",
-	"P1O[22],Dithering,On,Off;",
-	"P1O[73],Dither 24 Bit for VGA,Off,On;",
+	"P1O[61],Black Transitions,On,Off;",
 	"P1O[41],Deinterlacing,Weave,Bob;",
 	"P1O[60],Sync 480i for HDMI,Off,On;",
 	"P1O[24],Rotate,Off,On;",
 	"P1-;",
+	"P1O[22],Dithering,On,Off;",
+	"DEP1O[84],Render 24 Bit,Off,On;",
+	"P1O[73],Dither 24 Bit for VGA,Off,On;",
+	"P1-;",
+	"P1O[89],480i to 480p Hack,Off,On;",
 	"P1O[54:53],Widescreen Hack,Off,3:2,5:3,16:9;",
 	"P1O[82:81],Texture Filter,Off,All Polygon,Dithered,Dith+Shaded;",
+	"hDP1O[87:86],Filter Strength,25%,50%,75%,100%;",
 	"hDP1O[83],Filter 2D Detect,Off,On;",
 	"P1-;",
 	"d1P1O[44],SPU RAM select,DDR3,SDRAM2;",
@@ -424,8 +437,15 @@ parameter CONF_STR = {
 	"P2O[72],Pause when CD slow,On,Off(U);",
 	"P2O[15],PAL 60Hz Hack,Off,On(U);",
 	"P2O[21],CD Fast Seek,Off,On(U);",
-	"P2O[77:75],CD Speed,Auto,Forced 1X(U),Forced 2X(U),Hack 4X(U),Hack 6X(U),Hack 8X(U);",
+	"P2O[77:75],CD Speed,Original,Forced 1X(U),Forced 2X(U),Hack 4X(U),Hack 6X(U),Hack 8X(U);",
 	"P2O[78],Limit Max CD Speed,Off,On(U);",
+	"P2O[85],RAM(Homebrew),2 MByte,8 MByte(U);",
+	"P2O[90],GPU Slowdown,Off,On(U);",
+	"P2-;",
+	"P2O[28],FPS Overlay,Off,On;",
+	"P2O[74],Error Overlay,Off,On;",
+	"P2O[59],CD Slow Overlay,Off,On;",
+	"h9P2O[70],CD Overlay,Read,Read+Seek;",
 	
 	"h3-;",
 	"h3P3,Debug;",
@@ -435,15 +455,16 @@ parameter CONF_STR = {
 	"h3P3O[11],VRAMViewer,Off,On;",
 	"h3P3O[30],Sound,On,Off;",
 	"h3P3O[43],RepTimingSPUDMA,Off,On;",
-	"h3P3O[26],DMAinBLOCKs,Off,On;",
 	"h3P3O[27],Textures,On,Off;",
 	"h3P3O[69],LBA Overlay,Off,On;",
+	"h3P3O[88],Fast CD DMA Timing,Off,On;",
 	"h3P3T1,Advance Pause;",
+	"h3P3T2,Sound IRQ Trigger;",
 
 	"-   ;",
 	"R0,Reset;",
-	"J1,Triangle,Circle,Cross,Square,Select,Start,L1,R1,L2,R2,L3,R3,Savestates,Fastforward,Pause(Core),Toggle Dualshock;",
-	"jn,Triangle,Circle,Cross,Square,Select,Start,L1,R1,L2,R2,L3,R3,X,X;",
+	"J1,Triangle(NeGcon B),O(Gun Fire|NeGcon A),X(Gun B|NeGcon I),[](NeGcon II),Select,Start(Gun A),L1,R1,L2,R2,L3,R3,Savestates,Fastforward,Pause(Core),Toggle Dualshock;",
+	"jn,X,A,B,Y,Select,Start,L,R;",
 	"I,",
 	"Load=DPAD Up|Save=Down|Slot=L+R,",
 	"Active Slot 1,",
@@ -467,14 +488,15 @@ parameter CONF_STR = {
 	"Region JP,",
 	"Region US,",
 	"Region EU,",
-	"Saving Memcard;",
+	"Saving Memcard,",
+	"Unsafe option used!;",
 	"V,v",`BUILD_DATE
 };
 
 reg dbg_enabled = 0;
 wire  [1:0] buttons;
 wire [127:0] status;
-wire [15:0] status_menumask = {filter_on, saving_memcard, (bk_pending | saving_memcard), bk_pending, status[59], multitap, biosMod, ~status[58], status[55], (PadPortDS1 | PadPortDS2), dbg_enabled, (PadPortGunCon1 | PadPortGunCon2 | PadPortJustif1 | PadPortJustif2), SDRAM2_EN, 1'b0};
+wire [15:0] status_menumask = {hack_480p, filter_on, saving_memcard, (bk_pending | saving_memcard), bk_pending, status[59], multitap, biosMod, ~TURBO_MEM, (status[55] && ~hack_480p), (PadPortDS1 | PadPortDS2), dbg_enabled, (PadPortGunCon1 | PadPortGunCon2 | PadPortJustif1 | PadPortJustif2), SDRAM2_EN, (snacPort1 | snacPort2)};
 wire        forced_scandoubler;
 reg  [31:0] sd_lba0 = 0;
 reg  [31:0] sd_lba1;
@@ -522,6 +544,8 @@ wire [15:0] joystick_analog_r2;
 wire [15:0] joystick_analog_l3;
 wire [15:0] joystick_analog_r3;
 
+wire [7:0] paddle_0;
+
 wire [24:0] mouse;
 
 wire [15:0] joystick1_rumble;
@@ -531,6 +555,8 @@ wire [15:0] joystick4_rumble;
 wire [32:0] RTC_time;
 
 wire filter_on = (status[82:81] == 2'b00) ? 1'b0 : 1'b1; 
+
+assign resSwitchBlackout = ~status[61];
 
 wire [127:0] status_in = {status[127:39],ss_slot,status[36:19], 2'b00, status[16:0]};
 
@@ -591,10 +617,16 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(4), .BLKSZ(3)) hps_io
    .joystick_l_analog_0(joystick_analog_l0),
    .joystick_r_analog_0(joystick_analog_r0),  
    .joystick_l_analog_1(joystick_analog_l1),
-   .joystick_r_analog_1(joystick_analog_r1),
+   .joystick_r_analog_1(joystick_analog_r1),   
+   .joystick_l_analog_2(joystick_analog_l2),
+   .joystick_r_analog_2(joystick_analog_r2),   
+   .joystick_l_analog_3(joystick_analog_l3),
+   .joystick_r_analog_3(joystick_analog_r3),
    .ps2_mouse(mouse),
    .joystick_0_rumble(paused ? 16'h0000 : joystick1_rumble),
    .joystick_1_rumble(paused ? 16'h0000 : joystick2_rumble),
+   
+   .paddle_0(paddle_0),
    
    .direct_video(DIRECT_VIDEO)
 );
@@ -639,8 +671,8 @@ always @(posedge clk_1x) begin
 	end
 end
 
-localparam EXE_START = 4194304;
-localparam BIOS_START = 2097152;
+localparam EXE_START = 16777216;
+localparam BIOS_START = 8388608;
 
 reg [26:0] ramdownload_wraddr;
 reg [31:0] ramdownload_wrdata;
@@ -693,8 +725,8 @@ always @(posedge clk_1x) begin
       if (ioctl_wr) begin
          if(~ioctl_addr[1]) begin
             ramdownload_wrdata[15:0] <= ioctl_dout;
-            if (bios_download)         ramdownload_wraddr  <= {6'd1, ioctl_index[7:6], ioctl_addr[18:0]};
-            else if (exe_download)     ramdownload_wraddr  <= ioctl_addr[20:0] + EXE_START[26:0];                              
+            if (bios_download)         ramdownload_wraddr  <= {4'd1, 2'b00, ioctl_index[7:6], ioctl_addr[18:0]};
+            else if (exe_download)     ramdownload_wraddr  <= ioctl_addr[22:0] + EXE_START[26:0];                              
             else if (cdinfo_download)  ramdownload_wraddr  <= ioctl_addr[26:0];      
          end else begin
             ramdownload_wrdata[31:16] <= ioctl_dout;
@@ -711,12 +743,12 @@ always @(posedge clk_1x) begin
    loadExe         <= exe_download_1 & ~exe_download;  
 
    if (exe_download & ramdownload_wr) begin
-      if (ramdownload_wraddr[20:0] == 'h10) exe_initial_pc     <= ramdownload_wrdata;
-      if (ramdownload_wraddr[20:0] == 'h14) exe_initial_gp     <= ramdownload_wrdata;
-      if (ramdownload_wraddr[20:0] == 'h18) exe_load_address   <= ramdownload_wrdata;
-      if (ramdownload_wraddr[20:0] == 'h1C) exe_file_size      <= ramdownload_wrdata;
-      if (ramdownload_wraddr[20:0] == 'h30) exe_stackpointer   <= ramdownload_wrdata;
-      if (ramdownload_wraddr[20:0] == 'h34) exe_stackpointer   <= exe_stackpointer + ramdownload_wrdata;
+      if (ramdownload_wraddr[22:0] == 'h10) exe_initial_pc     <= ramdownload_wrdata;
+      if (ramdownload_wraddr[22:0] == 'h14) exe_initial_gp     <= ramdownload_wrdata;
+      if (ramdownload_wraddr[22:0] == 'h18) exe_load_address   <= ramdownload_wrdata;
+      if (ramdownload_wraddr[22:0] == 'h1C) exe_file_size      <= ramdownload_wrdata;
+      if (ramdownload_wraddr[22:0] == 'h30) exe_stackpointer   <= ramdownload_wrdata;
+      if (ramdownload_wraddr[22:0] == 'h34) exe_stackpointer   <= exe_stackpointer + ramdownload_wrdata;
    end
 
    if (loadExe) biosMod <= 1'b1;
@@ -850,7 +882,7 @@ defparam savestate_ui.INFO_TIMEOUT_BITS = 25;
 
 wire PadPortDS1      = (status[48:45] == 4'b0000);
 wire PadPortEnable1  = (status[48:45] != 4'b0001);
-wire PadPortDigital1 = (status[48:45] == 4'b0010);
+wire PadPortDigital1 = (status[48:45] == 4'b0010) || (status[52:49] == 4'b1100);
 wire PadPortAnalog1  = (status[48:45] == 4'b0011) || (status[48:45] == 4'b0111);
 wire PadPortGunCon1  = (status[48:45] == 4'b0100);
 wire PadPortNeGcon1  = (status[48:45] == 4'b0101) || (status[48:45] == 4'b0110);
@@ -859,10 +891,11 @@ wire PadPortMouse1   = (status[48:45] == 4'b1000);
 wire PadPortJustif1  = (status[48:45] == 4'b1001);
 wire snacPort1       = (status[48:45] == 4'b1010) && ~multitap;
 wire PadPortStick1   = (status[48:45] == 4'b1011);
+wire PadPortPopn1    = (status[48:45] == 4'b1100);
    
 wire PadPortDS2      = (status[52:49] == 4'b0000);
 wire PadPortEnable2  = (status[52:49] != 4'b0001) && ~multitap;
-wire PadPortDigital2 = (status[52:49] == 4'b0010);
+wire PadPortDigital2 = (status[52:49] == 4'b0010) || (status[52:49] == 4'b1100);
 wire PadPortAnalog2  = (status[52:49] == 4'b0011) || (status[52:49] == 4'b0111);
 wire PadPortGunCon2  = (status[52:49] == 4'b0100);
 wire PadPortNeGcon2  = (status[52:49] == 4'b0101) || (status[52:49] == 4'b0110);
@@ -871,8 +904,32 @@ wire PadPortMouse2   = (status[52:49] == 4'b1000);
 wire PadPortJustif2  = (status[52:49] == 4'b1001);
 wire snacPort2       = (status[52:49] == 4'b1010) && ~multitap;
 wire PadPortStick2   = (status[52:49] == 4'b1011);
+wire PadPortPopn2    = (status[52:49] == 4'b1100);
 
-wire multitap       = status[66];
+reg paddleMode = 0;
+reg paddleMin = 0;
+reg paddleMax = 0;
+wire [7:0] joy0_xmuxed = (paddleMode) ? (paddle_0 - 8'd128) : joystick_analog_l0[7:0];
+
+// to activate paddleMode negcon mode must be active and paddle must best moved
+always @(posedge clk_1x) begin
+   if (PadPortNeGcon1) begin
+      if (paddle_0 < 112) paddleMin <= 1'b1;
+      if (paddle_0 > 144) paddleMax <= 1'b1;
+      if (paddleMin && paddleMax) paddleMode <= 1'b1;
+   end else begin
+      paddleMode <= 0;
+      paddleMin <= 0;
+      paddleMax <= 0;
+   end
+end
+
+// 00 -> multitap off
+// 01 -> port1, 4 x digital
+// 10 -> port1, 4 x analog
+wire multitap        = (status[57:56] != 2'b00);
+wire multitapDigital = (status[57:56] == 2'b01);
+wire multitapAnalog  = (status[57:56] == 2'b10);
 
 wire [1:0] padMode;
 reg  [1:0] padMode_1;
@@ -908,7 +965,11 @@ always @(posedge clk_1x) begin
       if (padMode[1])  psx_info <= 8'd17;
       if (!padMode[1]) psx_info <= 8'd18;
    end else if (cdinfo_download_1 && ~cdinfo_download) begin
-      if (status[40:39] == 2'b00) begin
+      // warning for every unsafe option
+      if (status[89] || status[80:79] > 0 || status[72] || status[15] || status[21] || status[77:75] > 0 || status[78] || status[85]) begin
+         psx_info_req <= 1;
+         psx_info     <= 8'd24;
+      end else if (status[40:39] == 2'b00) begin
          psx_info_req <= 1;
          case(region_out)
             0: begin psx_info <= 8'd19; end   // unknown => default to NTSC          
@@ -1031,17 +1092,19 @@ psx
    .exe_load_address(exe_load_address),
    .exe_file_size(exe_file_size),   
    .exe_stackpointer(exe_stackpointer),
-   .fastboot(status[16]),
+   .fastboot(status[16] && hasCD),
+   .ram8mb(status[85]),
    .TURBO_MEM(TURBO_MEM),
    .TURBO_COMP(TURBO_COMP),
    .TURBO_CACHE(TURBO_CACHE),
    .TURBO_CACHE50(TURBO_CACHE50),
    .REPRODUCIBLEGPUTIMING(0),
-   .DMABLOCKATONCE(status[26]),
    .INSTANTSEEK(status[21]),
    .FORCECDSPEED(status[77:75]),
    .LIMITREADSPEED(status[78]),
+   .IGNORECDDMATIMING(status[88]),
    .ditherOff(status[22]),
+   .interlaced480pHack(status[89]),
    .showGunCrosshairs(status[9]),
    .fpscountOn(status[28]),
    .cdslowOn(status[59]),
@@ -1052,15 +1115,19 @@ psx
    .PATCHSERIAL(0), //.PATCHSERIAL(status[54]),
    .noTexture(status[27]),
    .textureFilter(status[82:81]),
+   .textureFilterStrength(status[87:86]),
    .textureFilter2DOff(status[83]),
    .dither24(status[73]),
+   .render24(status[84] && ~hack_480p),
+   .drawSlow(status[90]),
    .syncVideoOut(syncVideoOut),
    .syncInterlace(status[60]),
    .rotate180(status[24]),
-   .fixedVBlank(status[55]),
-   .vCrop(status[4:3]),
+   .fixedVBlank(status[55] && ~hack_480p),
+   .vCrop(hack_480p ? 2'b00 : status[4:3]),
    .hCrop(status[67]),
    .SPUon(~status[30]),
+   .SPUIRQTrigger(status[2]),
    .SPUSDRAM(status[44] & SDRAM2_EN),
    .REVERBOFF(0),
    .REPRODUCIBLESPUDMA(status[43]),
@@ -1071,6 +1138,7 @@ psx
    .ram_dataWrite(sdr_sdram_din),
    .ram_dataRead32(sdr_sdram_dout32),
    .ram_Adr(sdram_addr),
+   .ram_cntDMA(sdram_cntDMA),
    .ram_be(sdram_be), 
    .ram_rnw(sdram_rnw),  
    .ram_ena(sdram_req), 
@@ -1164,7 +1232,10 @@ psx
    .video_g         (g),
    .video_b         (b),
    .video_isPal     (video_isPal),   
+   .video_fbmode    (video_fbmode),   
+   .video_fb24      (video_fb24),   
    .video_hResMode  (video_hResMode),
+   .video_frameindex(frameindex),
    //Keys
    .DSAltSwitchMode(status[31]),
    .PadPortEnable1 (PadPortEnable1),
@@ -1177,6 +1248,7 @@ psx
    .PadPortDS1     (PadPortDS1),
    .PadPortJustif1 (PadPortJustif1),
    .PadPortStick1  (PadPortStick1),
+   .PadPortPopn1   (PadPortPopn1),
    .PadPortEnable2 (PadPortEnable2),
    .PadPortDigital2(PadPortDigital2),
    .PadPortAnalog2 (PadPortAnalog2),
@@ -1187,6 +1259,7 @@ psx
    .PadPortDS2     (PadPortDS2),
    .PadPortJustif2 (PadPortJustif2),
    .PadPortStick2  (PadPortStick2),
+   .PadPortPopn2   (PadPortPopn2),
    .KeyTriangle({joy4[4], joy3[4], joy2[4], joy[4] }),
    .KeyCircle  ({joy4[5] ,joy3[5] ,joy2[5] ,joy[5] }),
    .KeyCross   ({joy4[6] ,joy3[6] ,joy2[6] ,joy[6] }),
@@ -1204,7 +1277,7 @@ psx
    .KeyL2      ({joy4[12],joy3[12],joy2[12],joy[12]}),
    .KeyL3      ({joy4[14],joy3[14],joy2[14],joy[14]}),
    .ToggleDS   (ToggleDS),
-   .Analog1XP1(joystick_analog_l0[7:0]),       
+   .Analog1XP1(joy0_xmuxed),       
    .Analog1YP1(joystick_analog_l0[15:8]),       
    .Analog2XP1(joystick_analog_r0[7:0]),           
    .Analog2YP1(joystick_analog_r0[15:8]),    
@@ -1231,6 +1304,8 @@ psx
    .MouseX({mouse[4],mouse[15:8]}),
    .MouseY({mouse[5],mouse[23:16]}),
    .multitap(multitap),
+   .multitapDigital(multitapDigital),
+   .multitapAnalog(multitapAnalog),
    //snac
    .snacPort1(snacPort1),
    .snacPort2(snacPort2),
@@ -1244,6 +1319,7 @@ psx
    .actionNextSnac(actionNextSnac),
    .receiveValidSnac(receiveValidSnac),
    .ackSnac(~ack),//using real ack not the 1 cycle ack
+   .snacMC(status[66]),
 	
    //sound       
 	.sound_out_left(AUDIO_L),
@@ -1258,7 +1334,7 @@ psx
    .rewind_active         (0), //(status[27] & joy[15]),
    //cheats
    .cheat_clear(gg_reset),
-   .cheats_enabled(~status[6] && ~status[58] && ~ioctl_download),
+   .cheats_enabled(~status[6] && ~TURBO_MEM && ~ioctl_download),
    .cheat_on(gg_valid),
    .cheat_in(gg_code),
    .cheats_active(gg_active),
@@ -1412,7 +1488,8 @@ wire  [31:0] sdr_sdram_dout32;
 wire  [15:0] sdr_bram_din;
 wire         sdr_sdram_ack;
 wire         sdr_bram_ack;
-wire  [22:0] sdram_addr;
+wire  [24:0] sdram_addr;
+wire   [1:0] sdram_cntDMA;
 wire   [3:0] sdram_be;
 wire         sdram_req;
 wire         sdram_ack;
@@ -1430,7 +1507,7 @@ wire         dma_wr;
 wire         dma_reqprocessed;
 wire [31:0]  dma_data;
 
-wire  [20:0] sdram_dmafifo_adr;  
+wire  [22:0] sdram_dmafifo_adr;  
 wire  [31:0] sdram_dmafifo_data; 
 wire         sdram_dmafifo_empty;
 wire         sdram_dmafifo_read; 
@@ -1474,6 +1551,7 @@ sdram sdram
 	.ch1_req(sdram_req & sdram_rnw),
 	.ch1_rnw(1'b1),
 	.ch1_dma(sdram_dma),
+	.ch1_cntDMA(sdram_cntDMA),
 	.ch1_cache(sdram_cache),
 	.ch1_ready(sdram_readack),
 	.cache_wr(cache_wr),  
@@ -1546,6 +1624,7 @@ sdram sdram2
 	.ch1_req(spuram_ena & spuram_rnw),
 	.ch1_rnw(1'b1),
 	.ch1_dma(1'b0),
+   .ch1_cntDMA(2'b00),
 	.ch1_cache(1'b0),
 	.ch1_ready(sdram_readack2),
 
@@ -1587,12 +1666,14 @@ assign DDRAM_CLK = clk_2x;
 
 assign CLK_VIDEO = clk_vid;
 
-wire hs, vs, hbl, vbl, video_interlace, video_isPal;
+wire hs, vs, hbl, vbl, video_interlace, video_isPal, video_fbmode, video_fb24;
 
 wire [2:0] video_hResMode;
 
 wire ce_pix;
 wire [7:0] r,g,b;
+
+wire hack_480p = status[89];
 
 typedef struct {
 	logic [7:0] red;
@@ -1742,7 +1823,7 @@ always_ff @(posedge CLK_VIDEO) if (CE_PIXEL) begin
 		video_aspect.hb <= 0;
 	if (h_pos == hb_end)
 		video_aspect.hb <= 1;
-	if (status[62] || (status[54:53] > 0))
+	if (status[62] || hack_480p || (status[54:53] > 0))
 		video_aspect.hb <= hbl;
 	
 end
@@ -1811,4 +1892,245 @@ always_ff @(posedge clk_1x) begin
 	end
 end
 
+wire clk8Snac;
+wire clk9Snac;
+wire oldClk8;
+wire oldClk9;
+wire selectedPort1Snac;
+wire selectedPort2Snac;
+wire oldselectedPort1;
+wire oldselectedPort2;
+wire [7:0]transmitValueSnac;
+wire [7:0]receiveBufferSnac;
+wire receiveValidSnac;
+wire beginTransferSnac;
+wire actionNextSnac;
+wire actionNextPadSnac;
+reg [7:0]Send;
+reg [7:0]Receive;
+wire Cmd;
+wire Dat;
+wire ack;
+wire oldAck;
+//wire ackSnac;
+wire [15:0]ackTimer;
+wire ackNone;
+wire oneTime;
+wire [3:0]bitCnt;
+wire [8:0]byteCnt;
+wire [8:0]bytesLeft;
+wire [7:0]pad1ID;
+wire [7:0]pad2ID;
+wire [7:0]targetID;
+wire irq10Snac;
+wire csync;
+wire MCtransfer;
+wire PStransfer;
+wire [7:0]PSdatalength;
+
+reg USER_IN3_1;
+reg USER_IN4_1;
+reg USER_IN6_1;
+
+reg USER_IN3_2;
+reg USER_IN4_2;
+reg USER_IN6_2;
+
+reg USER_IN3_3;
+reg USER_IN3_4;
+reg ackglitch;
+
+assign clk8Snac = bitCnt < 8 ? clk9Snac : 1'b1;
+
+always @(posedge clk_1x) 
+begin
+
+   USER_IN3_1 <= USER_IN[3];
+   USER_IN4_1 <= USER_IN[4];
+   USER_IN6_1 <= USER_IN[6];
+   
+   USER_IN3_2 <= USER_IN3_1;
+   USER_IN4_2 <= USER_IN4_1;
+   USER_IN6_2 <= USER_IN6_1;
+
+   USER_IN3_3 <= USER_IN3_2;//glitch filter for ack	
+   USER_IN3_4 <= USER_IN3_3;	
+   ackglitch  <= ~USER_IN3_1 && ~USER_IN3_2 && ~USER_IN3_3 && ~USER_IN3_4 ? 1'b0 : 1'b1;
+
+	if (snacPort1 || snacPort2) begin
+		USER_OUT[0] <= ~selectedPort2Snac;
+		USER_OUT[1] <= ~selectedPort1Snac;
+		USER_OUT[2] <= Cmd;
+		USER_OUT[3] <= 1'b1; //ACK
+		USER_OUT[4] <= 1'b1; //DAT
+		USER_OUT[5] <= oldClk8;	
+		ack         <= ~ackglitch ? USER_IN3_2 : 1'b1;
+		Dat         <= USER_IN4_2;	
+		
+		if ((pad1ID == 8'h63 || pad2ID == 8'h63) && (pad1ID != 8'h31 || pad2ID != 8'h31)) begin //quirk for guncon, irq is N/C in guncon. so using irq line and outputting csync on snac for g-con. only if justifier isn't connected
+			USER_OUT[6] <= ~csync;
+			irq10Snac   <= 1'b0;
+			csync       <= VGA_HS ^ VGA_VS;//real csync shifts HSync during VSync, should be close enough to work	with guncon
+		end
+		else begin
+			USER_OUT[6] <= 1'b1;		
+			irq10Snac   <= ~USER_IN6_2;
+		end
+	end
+	else begin
+		USER_OUT  <= '1;
+		irq10Snac <= 1'b0;
+		ack       <= 1'b1;
+		Dat       <= 1'b1;
+	end
+		
+	oldselectedPort1 <= selectedPort1Snac;
+	oldselectedPort2 <= selectedPort2Snac;
+
+	if ((~oldselectedPort1 && selectedPort1Snac) || (~oldselectedPort2 && selectedPort2Snac)) begin
+		byteCnt   <= 9'd0;
+		bytesLeft <= 9'd0;
+	end
+
+	if (beginTransferSnac) begin
+		bitCnt  <= 4'd0;
+		byteCnt <= byteCnt + 9'd1 ;
+	end
+	
+	oldClk8 <= clk8Snac;
+	oldClk9 <= clk9Snac;
+	
+	if (oldClk9 && ~clk9Snac) begin	//send on falling edge
+		if (bitCnt < 8) begin
+			if (bitCnt==0) begin
+				Cmd  <= transmitValueSnac[0];
+				Send <= {1'b1, transmitValueSnac[7:1]};
+			end
+			else begin
+				Cmd  <= Send[0];
+				Send <= {1'b1, Send[7:1]};
+			end
+		end	
+		else begin
+			Cmd  <= 1'b1;
+			Send <= Send;
+		end
+	end	
+	
+	if(~oldClk8 && clk8Snac) begin //receive on rising edge
+		Receive <= { Dat, Receive[7:1]};
+		bitCnt <= bitCnt + 1'b1;
+		if(bitCnt == 4'd7) begin//check for ack 
+			oneTime <= 1'b1;
+			if (MCtransfer) ackTimer <= 16'd60000;//very late ack after 7th byte. around 56000 cycles (1.7ms) with a sony MC. 3rd party MCs don't seem to do this
+			else begin
+				if (byteCnt == bytesLeft + 3) ackTimer <= 16'd400;//only wait around 150 on last byte
+				else ackTimer <= 16'd1800;//1st byte of multitap(1375) cycles to ack,digital(460),analog(350-400),ds2(250-400),mouse(120),guncon(270)
+			end
+		end	
+	end
+
+	if (ackTimer > 0) begin
+		ackTimer <= ackTimer - 16'd1;
+	end	
+	
+	oldAck <= ack;
+	if(oldAck && ~ack) begin //ack received
+		actionNextPadSnac <= 1'b1;
+		ackTimer <= 16'd173;//16'd255;//a delay between ack and next action. too small might cause a hang. was using acktimer 1-255
+	end
+	else if(ackTimer == 1) begin //wait over
+		actionNextPadSnac <= 1'b1;
+		oneTime <= 1'b0;		
+	end
+	else if (ackTimer == 16'd258) begin //no ack
+		ackNone <= 1'b1;
+		actionNextPadSnac <= 1'b1;
+	end
+	else if (ackTimer == 16'd256) begin //reset if no ack
+		oneTime <= 1'b0;
+		ackTimer <= 16'd0;
+	end	
+	else begin
+		actionNextPadSnac <= 1'b0;
+		ackNone <= 1'b0;
+	end
+		
+	if (actionNextPadSnac && ((snacPort1 && selectedPort1Snac) || (snacPort2 && selectedPort2Snac))) begin //logic for joypad.vhd
+		if (oneTime) begin
+			if (ackNone) begin
+				if (byteCnt < (bytesLeft + 4)) begin // no ack on last byte of transfer
+					receiveBufferSnac <= Receive;
+					receiveValidSnac <= 1'b1;
+					actionNextSnac <= 1'b1;
+				end
+				else
+					actionNextSnac <= 1'b1;
+				end	
+			else begin
+				if (byteCnt < (bytesLeft + 4)) begin
+					receiveBufferSnac <= Receive;
+					receiveValidSnac <= 1'b1;
+					//ackSnac <= 1'b1;
+				end
+				actionNextSnac <= 1'b1;	
+			end
+		end
+		else begin
+			actionNextSnac <= 1'b1;	
+		end
+	end	
+	else begin
+		receiveBufferSnac <= 8'd0;
+		receiveValidSnac <= 1'b0;
+		actionNextSnac <= 1'b0;
+		//ackSnac <= 1'b0;
+	end	
+	
+	if (receiveValidSnac) begin
+		if (byteCnt == 1) begin
+			targetID <= transmitValueSnac;
+		end
+		if (byteCnt == 2) begin 
+			if (targetID == 8'h81 || targetID == 8'h82 || targetID == 8'h83 || targetID == 8'h84) begin 	//memcard quirks
+				MCtransfer <= 1'b1;
+				if (transmitValueSnac == 8'h52) bytesLeft <= 9'd137;//read
+				if (transmitValueSnac == 8'h57) bytesLeft <= 9'd135;//write
+				if (transmitValueSnac == 8'h53) bytesLeft <= 9'd7;//ID Cmd
+				//pocketstation
+				if (transmitValueSnac == 8'h50) bytesLeft <= 9'd0;//Change a FUNC 03h related value
+				if (transmitValueSnac == 8'h58) bytesLeft <= 9'd2;//Get an ID or Version value
+				if (transmitValueSnac == 8'h59) bytesLeft <= 9'd6;//Prepare File Execution with Dir_index, and Parameter
+				if (transmitValueSnac == 8'h5A) bytesLeft <= 9'd18;//Get Dir_index, ComFlags, F_SN, Date, and Time
+				if (transmitValueSnac == 8'h5D) bytesLeft <= 9'd3;//Execute Custom Download Notification					
+				if (transmitValueSnac == 8'h5E) bytesLeft <= 9'd3;//Get-and-Send ComFlags.bit1,3,2
+				if (transmitValueSnac == 8'h5F) bytesLeft <= 9'd1;//Get-and-Send ComFlags.bit0				
+				if (transmitValueSnac == 8'h5B) begin//Execute Function and transfer data from Pocketstation to PSX--variable length
+					bytesLeft <= 9'd3;
+					PStransfer <= 1'b1;
+				end	
+				if (transmitValueSnac == 8'h5C) begin//Execute Function and transfer data from PSX to Pocketstation--variable length
+					bytesLeft <= 9'd3;
+					PStransfer <= 1'b1;
+				end
+			end 
+			else begin //joypad quirks
+				MCtransfer <= 1'b0;
+				if (selectedPort1Snac) pad1ID <= Receive;
+				if (selectedPort2Snac) pad2ID <= Receive;
+
+				if (Receive == 8'h80) bytesLeft <= 9'd32; //for multitap
+				else bytesLeft <= {5'd0, (Receive[3:0] + Receive[3:0])};	
+			end
+		end
+		if (byteCnt == 4 && PStransfer == 1) begin //for pocketstation
+			bytesLeft <= bytesLeft + Receive;
+			PSdatalength <=  Receive;
+		end
+		if ((byteCnt == PSdatalength + 5) && PStransfer == 1) begin 
+			bytesLeft <= bytesLeft + Receive;
+			PStransfer <= 1'b0;
+		end		
+	end
+end
 endmodule

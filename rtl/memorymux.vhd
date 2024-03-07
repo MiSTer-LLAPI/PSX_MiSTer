@@ -12,6 +12,9 @@ entity memorymux is
       ce                   : in  std_logic;
       reset                : in  std_logic;
       
+      pauseNext            : in  std_logic;
+      isIdle               : out std_logic;
+      
       loadExe              : in  std_logic;
       exe_initial_pc       : in  unsigned(31 downto 0);
       exe_initial_gp       : in  unsigned(31 downto 0);
@@ -24,12 +27,10 @@ entity memorymux is
       PATCHSERIAL          : in  std_logic;
       TURBO                : in  std_logic;
       region_in            : in  std_logic_vector(1 downto 0);
-      
-      isIdle               : out std_logic;
-      
+
       ram_dataWrite        : out std_logic_vector(31 downto 0) := (others => '0');
       ram_dataRead         : in  std_logic_vector(31 downto 0);
-      ram_Adr              : out std_logic_vector(22 downto 0) := (others => '0');
+      ram_Adr              : out std_logic_vector(24 downto 0) := (others => '0');
       ram_be               : out std_logic_vector(3 downto 0) := (others => '0');
       ram_rnw              : out std_logic := '0';
       ram_ena              : out std_logic := '0';
@@ -214,6 +215,7 @@ architecture arch of memorymux is
    signal bios_page_open         : std_logic;
    signal ram_page_open          : std_logic;
    signal ram_page_addr          : unsigned(10 downto 0);
+   signal ram_load_last          : integer range 0 to 7 := 0;
    
    signal waitcnt                : integer range 0 to 127;
          
@@ -466,9 +468,9 @@ begin
    );
    
    writeFifo_Din <= mem_in_writeMask & std_logic_vector(mem_in_reqsize) & std_logic_vector(mem_in_addressData) & mem_in_dataWrite;
-   writeFifo_Wr  <= '1' when (ce = '1' and mem_in_request = '1' and mem_in_rnw = '0' and (state /= IDLE or writeFifo_busy = '1' or ((readram = '1' or writeram = '1') and ram_done = '0'))) else '0';
+   writeFifo_Wr  <= '1' when (ce = '1' and mem_in_request = '1' and mem_in_rnw = '0' and (pauseNext = '1' or state /= IDLE or writeFifo_busy = '1' or ((readram = '1' or writeram = '1') and ram_done = '0'))) else '0';
    
-   writeFifo_Rd  <= '1' when (ce = '1' and state = IDLE and writeFifo_Empty = '0' and ((readram = '0' and writeram = '0') or ram_done = '1')) else '0';
+   writeFifo_Rd  <= '1' when (ce = '1' and pauseNext = '0' and state = IDLE and writeFifo_Empty = '0' and ((readram = '0' and writeram = '0') or ram_done = '1')) else '0';
    
    mem_fifofull  <= writeFifo_NearFull;
    
@@ -500,6 +502,10 @@ begin
          if (ram_done = '1') then
             readram  <= '0';
             writeram <= '0';
+         end if;
+      
+         if (ram_load_last > 0) then
+            ram_load_last <= ram_load_last - 1;
          end if;
       
          if (reset = '1') then
@@ -547,7 +553,7 @@ begin
                      exestep    <= 0;
                      execopycnt <= (others => '0');
                
-                  elsif (((readram = '0' and writeram = '0') or ram_done = '1') and ((mem_request = '1' and writeFifo_busy = '0') or writeFifo_Empty = '0')) then
+                  elsif (pauseNext = '0' and ((readram = '0' and writeram = '0') or ram_done = '1') and ((mem_request = '1' and writeFifo_busy = '0') or writeFifo_Empty = '0')) then
                   
                      if (mem_request = '1' and writeFifo_busy = '0') then
                         mem_save_request <= '0';
@@ -565,7 +571,7 @@ begin
                            ram_ena     <= '1';
                            ram_cache   <= mem_isCache;
                            ram_rnw     <= '1';
-                           ram_Adr     <= "00" & std_logic_vector(mem_addressInstr(20 downto 2)) & "00";
+                           ram_Adr     <= "00" & std_logic_vector(mem_addressInstr(22 downto 2)) & "00";
                            state       <= IDLE;
                            readram     <= '1';
                            ram_rotate_bits <= "00";
@@ -590,7 +596,7 @@ begin
                            ram_ena         <= '1';
                            ram_cache       <= '0';
                            ram_rnw         <= '1';
-                           ram_Adr         <= "01" & region & std_logic_vector(mem_addressInstr(18 downto 2)) & "00";
+                           ram_Adr         <= "01" & "00" & region & std_logic_vector(mem_addressInstr(18 downto 2)) & "00";
                            state           <= READBIOS;
                            addressBIOS_buf <= mem_addressInstr(18 downto 0);
                            ram_rotate_bits <= "00";
@@ -619,10 +625,11 @@ begin
                            ext_lastactive  <= '0';
                            ram_cache       <= '0';
                            ram_rnw         <= mem_rnw;
-                           ram_Adr         <= "00" & std_logic_vector(mem_addressData(20 downto 2)) & "00";
+                           ram_Adr         <= "00" & std_logic_vector(mem_addressData(22 downto 2)) & "00";
                            ram_rotate_bits <= std_logic_vector(mem_addressData(1 downto 0));
                            if (mem_rnw = '1') then
-                              if (TURBO = '1') then
+                              ram_load_last <= 7;
+                              if (TURBO = '1' or ram_load_last > 0) then
                                  state   <= IDLE;
                                  ram_ena <= '1';
                                  readram <= '1';
@@ -651,7 +658,7 @@ begin
                            ram_ena         <= '1';
                            ram_cache       <= '0';
                            ram_rnw         <= '1';
-                           ram_Adr         <= "01" & region & std_logic_vector(mem_addressData(18 downto 2)) & "00";
+                           ram_Adr         <= "01" & "00" & region & std_logic_vector(mem_addressData(18 downto 2)) & "00";
                            ram_rotate_bits <= std_logic_vector(mem_addressData(1 downto 0));
                            state           <= READBIOS;
                            addressBIOS_buf <= mem_addressData(18 downto 0);
@@ -834,17 +841,17 @@ begin
                   ram_be      <= "1111";
                   case (exestep) is
                      -- load PC
-                     when 0 => ram_Adr <= "01" & region & std_logic_vector(to_unsigned(16#6FF0#, 19)); ram_dataWrite <= x"3C08" & std_logic_vector(exe_initial_pc(31 downto 16));
-                     when 1 => ram_Adr <= "01" & region & std_logic_vector(to_unsigned(16#6FF4#, 19)); ram_dataWrite <= x"3508" & std_logic_vector(exe_initial_pc(15 downto  0));
-                     when 2 => ram_Adr <= "01" & region & std_logic_vector(to_unsigned(16#6FF8#, 19)); ram_dataWrite <= x"3C1C" & std_logic_vector(exe_initial_gp(31 downto 16));
-                     when 3 => ram_Adr <= "01" & region & std_logic_vector(to_unsigned(16#6FFC#, 19)); ram_dataWrite <= x"379C" & std_logic_vector(exe_initial_gp(15 downto  0));
-                     -- load sp
-                     when 4 => ram_Adr <= "01" & region & std_logic_vector(to_unsigned(16#7000#, 19)); ram_dataWrite <= x"3C1D" & std_logic_vector(exe_stackpointer(31 downto 16));
-                     when 5 => ram_Adr <= "01" & region & std_logic_vector(to_unsigned(16#7004#, 19)); ram_dataWrite <= x"37BD" & std_logic_vector(exe_stackpointer(15 downto  0));
-                     -- load fp
-                     when 6 => ram_Adr <= "01" & region & std_logic_vector(to_unsigned(16#7008#, 19)); ram_dataWrite <= x"3C1E" & std_logic_vector(exe_stackpointer(31 downto 16));
-                     when 7 => ram_Adr <= "01" & region & std_logic_vector(to_unsigned(16#700C#, 19)); ram_dataWrite <= x"01000008";
-                     when 8 => ram_Adr <= "01" & region & std_logic_vector(to_unsigned(16#7010#, 19)); ram_dataWrite <= x"37DE" & std_logic_vector(exe_stackpointer(15 downto  0));
+                     when 0 => ram_Adr <= "01" & "00" & region & std_logic_vector(to_unsigned(16#6FF0#, 19)); ram_dataWrite <= x"3C08" & std_logic_vector(exe_initial_pc(31 downto 16));
+                     when 1 => ram_Adr <= "01" & "00" & region & std_logic_vector(to_unsigned(16#6FF4#, 19)); ram_dataWrite <= x"3508" & std_logic_vector(exe_initial_pc(15 downto  0));
+                     when 2 => ram_Adr <= "01" & "00" & region & std_logic_vector(to_unsigned(16#6FF8#, 19)); ram_dataWrite <= x"3C1C" & std_logic_vector(exe_initial_gp(31 downto 16));
+                     when 3 => ram_Adr <= "01" & "00" & region & std_logic_vector(to_unsigned(16#6FFC#, 19)); ram_dataWrite <= x"379C" & std_logic_vector(exe_initial_gp(15 downto  0));
+                     -- load sp                       
+                     when 4 => ram_Adr <= "01" & "00" & region & std_logic_vector(to_unsigned(16#7000#, 19)); ram_dataWrite <= x"3C1D" & std_logic_vector(exe_stackpointer(31 downto 16));
+                     when 5 => ram_Adr <= "01" & "00" & region & std_logic_vector(to_unsigned(16#7004#, 19)); ram_dataWrite <= x"37BD" & std_logic_vector(exe_stackpointer(15 downto  0));
+                     -- load fp                       
+                     when 6 => ram_Adr <= "01" & "00" & region & std_logic_vector(to_unsigned(16#7008#, 19)); ram_dataWrite <= x"3C1E" & std_logic_vector(exe_stackpointer(31 downto 16));
+                     when 7 => ram_Adr <= "01" & "00" & region & std_logic_vector(to_unsigned(16#700C#, 19)); ram_dataWrite <= x"01000008";
+                     when 8 => ram_Adr <= "01" & "00" & region & std_logic_vector(to_unsigned(16#7010#, 19)); ram_dataWrite <= x"37DE" & std_logic_vector(exe_stackpointer(15 downto  0));
                      when others => null;
                   end case;
                   if (exe_stackpointer = 0 and (exestep = 4 or exestep = 5 or exestep = 6 or exestep = 8)) then
@@ -873,7 +880,7 @@ begin
                         state      <= EXECOPYWRITE;
                         ram_ena    <= '1';
                         ram_rnw    <= '1';
-                        ram_Adr    <= "10" & std_logic_vector(to_unsigned(16#800#, 21) + execopycnt(20 downto 0));
+                        ram_Adr    <= "10" & std_logic_vector(to_unsigned(16#800#, 23) + execopycnt(22 downto 0));
                      end if;
                   end if;
                   
@@ -882,7 +889,7 @@ begin
                      state         <= EXECOPYREAD;
                      ram_ena       <= '1';
                      ram_rnw       <= '0';
-                     ram_Adr       <= "00" & std_logic_vector(exe_load_address(20 downto 0) + execopycnt(20 downto 0));
+                     ram_Adr       <= "00" & std_logic_vector(exe_load_address(22 downto 0) + execopycnt(22 downto 0));
                      ram_dataWrite <= ram_dataRead(31 downto 0);
                      execopycnt    <= execopycnt + 4;
                   end if;
@@ -899,7 +906,7 @@ begin
                      ram_ena       <= '1';
                      ram_cache     <= '0';
                      ram_rnw       <= '0';
-                     ram_Adr       <= "00" & std_logic_vector(SS_Adr(18 downto 0)) & "00";
+                     ram_Adr       <= "00" & "00" & std_logic_vector(SS_Adr(18 downto 0)) & "00";
                      ram_be        <= "1111";
                      ram_dataWrite <= SS_DataWrite;
                   end if;
@@ -907,7 +914,7 @@ begin
                      ram_ena       <= '1';
                      ram_cache     <= '0';
                      ram_rnw       <= '1';
-                     ram_Adr       <= "00" & std_logic_vector(SS_Adr(18 downto 0)) & "00";
+                     ram_Adr       <= "00" & "00" & std_logic_vector(SS_Adr(18 downto 0)) & "00";
                   end if;
             
                when others => null;

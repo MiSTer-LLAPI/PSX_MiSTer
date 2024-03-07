@@ -75,7 +75,8 @@ architecture arch of etb is
    --sdram access 
    signal ram_dataWrite       : std_logic_vector(31 downto 0);
    signal ram_dataRead32      : std_logic_vector(31 downto 0);
-   signal ram_Adr             : std_logic_vector(22 downto 0);
+   signal ram_Adr             : std_logic_vector(24 downto 0);
+   signal ram_cntDMA          : std_logic_vector(1 downto 0);
    signal ram_be              : std_logic_vector(3 downto 0);
    signal ram_rnw             : std_logic;
    signal ram_ena             : std_logic;
@@ -93,7 +94,7 @@ architecture arch of etb is
    signal dma_reqprocessed    : std_logic;
    signal dma_data            : std_logic_vector(31 downto 0);
    
-   signal ram_dmafifo_adr     : std_logic_vector(20 downto 0);
+   signal ram_dmafifo_adr     : std_logic_vector(22 downto 0);
    signal ram_dmafifo_data    : std_logic_vector(31 downto 0);
    signal ram_dmafifo_empty   : std_logic;
    signal ram_dmafifo_read    : std_logic;
@@ -224,10 +225,11 @@ begin
    
    reset  <= not psx_on(0);
    
-   -- NTSC 53.693175 mhz => 18624.340989ps
-   clkvid <= not clkvid after 9312 ps;
+   -- NTSC 53.693175 mhz => 30 ns * 33.8688 / 53.693175 / 2 = 9.4617612014 ns
+   clkvid <= not clkvid after 9462 ps;
       
-   -- PAL  53.203425 mhz => 18795.782414ps
+   -- PAL  53.203425 mhz => 30 ns * 33.8688 / 53.203425 / 2 = 9.5488589315 ns
+   --clkvid <= not clkvid after 9549 ps;
    
    -- sync  = 2x => 67.7376 mhz
    --clkvid <= not clkvid  after 7500 ps;
@@ -263,16 +265,18 @@ begin
       exe_file_size         => exe_file_size,   
       exe_stackpointer      => exe_stackpointer,
       fastboot              => '1',
+      ram8mb                => '0',
       TURBO_MEM             => '0',
       TURBO_COMP            => '0',
       TURBO_CACHE           => '0',
       TURBO_CACHE50         => '0',
       REPRODUCIBLEGPUTIMING => '0',
-      DMABLOCKATONCE        => '0',
       INSTANTSEEK           => '0',
       FORCECDSPEED          => "000",
       LIMITREADSPEED        => '0',
+      IGNORECDDMATIMING     => '0',
       ditherOff             => '0',
+      interlaced480pHack    => '0',
       showGunCrosshairs     => '0',
       fpscountOn            => '0',
       cdslowOn              => '0',
@@ -283,8 +287,10 @@ begin
       PATCHSERIAL           => '0',
       noTexture             => '0',
       textureFilter         => "00",
+      textureFilterStrength => "00",
       textureFilter2DOff    => '0',
       dither24              => '0',
+      render24              => '0',
       syncVideoOut          => '0',
       syncInterlace         => '0',
       rotate180             => '0',
@@ -292,6 +298,7 @@ begin
       vCrop                 => "00",
       hCrop                 => '0',
       SPUon                 => '1',
+      SPUIRQTrigger         => '0',
       SPUSDRAM              => '1',
       REVERBOFF             => '0',
       REPRODUCIBLESPUDMA    => '0',
@@ -302,6 +309,7 @@ begin
       ram_dataWrite         => ram_dataWrite,
       ram_dataRead32        => ram_dataRead32, 
       ram_Adr               => ram_Adr,      
+      ram_cntDMA            => ram_cntDMA,      
       ram_be                => ram_be,      
       ram_rnw               => ram_rnw,      
       ram_ena               => ram_ena,      
@@ -384,7 +392,8 @@ begin
       video_interlace       => video_interlace,
       video_r               => video_r, 
       video_g               => video_g,    
-      video_b               => video_b,   
+      video_b               => video_b, 
+      video_frameindex      => open,
       -- Keys - all active high
       DSAltSwitchMode       => '0',
       PadPortEnable1        => '1',
@@ -441,6 +450,8 @@ begin
       Analog2XP4            => Analog2XP2,
       Analog2YP4            => Analog2YP2, 
       multitap              => '0',
+      multitapDigital       => '0',
+      multitapAnalog        => '0',
       MouseEvent            => MouseEvent,
       MouseLeft             => MouseLeft,
       MouseRight            => MouseRight,
@@ -505,10 +516,11 @@ begin
       clk                  => clk33,
       clk3x                => clk100,
       refresh              => ram_refresh,
-      addr(26 downto 23)   => "0000",
-      addr(22 downto  0)   => ram_Adr,
+      addr(26 downto 25)   => "00",
+      addr(24 downto  0)   => ram_Adr,
       req                  => ram_ena,
       ram_dma              => ram_dma,
+      ram_dmacnt           => ram_cntDMA,
       ram_iscache          => ram_iscache,
       rnw                  => ram_rnw,
       be                   => ram_be,
@@ -551,6 +563,7 @@ begin
       addr(18 downto  0)   => spuram_Adr,
       req                  => spuram_ena,
       ram_dma              => '0',
+      ram_dmacnt           => "00",
       ram_iscache          => '0',
       rnw                  => spuram_rnw,
       be                   => spuram_be,
@@ -560,7 +573,7 @@ begin
       done                 => spuram_done,
       reqprocessed         => open,
       ram_idle             => open,
-      ram_dmafifo_adr      => (20 downto 0 => '0'),
+      ram_dmafifo_adr      => (22 downto 0 => '0'),
       ram_dmafifo_data     => (31 downto 0 => '0'),
       ram_dmafifo_empty    => '1'
    );

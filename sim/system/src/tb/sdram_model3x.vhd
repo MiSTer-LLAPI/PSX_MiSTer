@@ -21,6 +21,7 @@ entity sdram_model3x is
       addr              : in  std_logic_vector(26 downto 0);
       req               : in  std_logic;
       ram_dma           : in  std_logic;
+      ram_dmacnt        : in  std_logic_vector(1 downto 0);
       ram_iscache       : in  std_logic;
       rnw               : in  std_logic;
       be                : in  std_logic_vector(3 downto 0);
@@ -35,7 +36,7 @@ entity sdram_model3x is
       dma_data          : out std_logic_vector(31 downto 0) := (others => '0');
       reqprocessed      : buffer std_logic := '0';
       ram_idle          : out std_logic := '0';
-      ram_dmafifo_adr   : in  std_logic_vector(20 downto 0);
+      ram_dmafifo_adr   : in  std_logic_vector(22 downto 0);
       ram_dmafifo_data  : in  std_logic_vector(31 downto 0);
       ram_dmafifo_empty : in  std_logic;
       ram_dmafifo_read  : out std_logic := '0';
@@ -70,7 +71,7 @@ architecture arch of sdram_model3x is
    signal addr_buffer            : std_logic_vector(26 downto 0);
    signal rnw_buffer             : std_logic := '0';
    
-   signal lastbank               : std_logic_vector(10 downto 0);
+   signal lastbank               : std_logic_vector(12 downto 0);
         
    signal refreshcnt             : integer range 0 to 1000 := 0;
    
@@ -274,7 +275,7 @@ begin
          for i in 0 to 7 loop
             do(7  + (i * 16) downto     (i * 16))  <= std_logic_vector(to_unsigned(data(to_integer(unsigned(addr_rotate(26 downto 1)) & '0') + 0), 8));
             do(15 + (i * 16) downto 8 + (i * 16))  <= std_logic_vector(to_unsigned(data(to_integer(unsigned(addr_rotate(26 downto 1)) & '0') + 1), 8));
-            addr_rotate(3 downto 1) := std_logic_vector(unsigned(addr_rotate(3 downto 1)) + 1); 
+            addr_rotate(9 downto 1) := std_logic_vector(unsigned(addr_rotate(9 downto 1)) + 1); 
          end loop;
       end if;
       
@@ -291,11 +292,11 @@ begin
                refresh_buffer <= '0';
                
             elsif (ram_dmafifo_empty = '0') then
-               data(to_integer(unsigned(ram_dmafifo_adr(20 downto 1)) & '0') + 3) := to_integer(unsigned(ram_dmafifo_data(31 downto 24)));
-               data(to_integer(unsigned(ram_dmafifo_adr(20 downto 1)) & '0') + 2) := to_integer(unsigned(ram_dmafifo_data(23 downto 16)));
-               data(to_integer(unsigned(ram_dmafifo_adr(20 downto 1)) & '0') + 1) := to_integer(unsigned(ram_dmafifo_data(15 downto  8)));
-               data(to_integer(unsigned(ram_dmafifo_adr(20 downto 1)) & '0') + 0) := to_integer(unsigned(ram_dmafifo_data( 7 downto  0)));
-               lastbank         <= ram_dmafifo_adr(20 downto 10);
+               data(to_integer(unsigned(ram_dmafifo_adr(22 downto 1)) & '0') + 3) := to_integer(unsigned(ram_dmafifo_data(31 downto 24)));
+               data(to_integer(unsigned(ram_dmafifo_adr(22 downto 1)) & '0') + 2) := to_integer(unsigned(ram_dmafifo_data(23 downto 16)));
+               data(to_integer(unsigned(ram_dmafifo_adr(22 downto 1)) & '0') + 1) := to_integer(unsigned(ram_dmafifo_data(15 downto  8)));
+               data(to_integer(unsigned(ram_dmafifo_adr(22 downto 1)) & '0') + 0) := to_integer(unsigned(ram_dmafifo_data( 7 downto  0)));
+               lastbank         <= ram_dmafifo_adr(22 downto 10);
                ram_dmafifo_read <= '1';
                rnw_buffer       <= '0';
                state            <= STATE_WAIT;
@@ -325,10 +326,7 @@ begin
                
                dma_buffer      <= ram_dma;
                reqprocessed_3x <= ram_dma;
-               if (addr(3 downto 2) = "00") then dma_count_3x <= "11"; end if;
-               if (addr(3 downto 2) = "01") then dma_count_3x <= "10"; end if;
-               if (addr(3 downto 2) = "10") then dma_count_3x <= "01"; end if;
-               if (addr(3 downto 2) = "11") then dma_count_3x <= "00"; end if;
+               dma_count_3x    <= unsigned(ram_dmacnt);
             end if;
          
          when STATE_WAIT => 
@@ -343,11 +341,11 @@ begin
             end if;
          
          when STATE_RW2 => 
-            if (ram_dmafifo_empty = '0' and ram_dmafifo_adr(20 downto 10) = lastbank) then
-               data(to_integer(unsigned(ram_dmafifo_adr(20 downto 1)) & '0') + 3) := to_integer(unsigned(ram_dmafifo_data(31 downto 24)));
-               data(to_integer(unsigned(ram_dmafifo_adr(20 downto 1)) & '0') + 2) := to_integer(unsigned(ram_dmafifo_data(23 downto 16)));
-               data(to_integer(unsigned(ram_dmafifo_adr(20 downto 1)) & '0') + 1) := to_integer(unsigned(ram_dmafifo_data(15 downto  8)));
-               data(to_integer(unsigned(ram_dmafifo_adr(20 downto 1)) & '0') + 0) := to_integer(unsigned(ram_dmafifo_data( 7 downto  0)));
+            if (ram_dmafifo_empty = '0' and ram_dmafifo_adr(22 downto 10) = lastbank) then
+               data(to_integer(unsigned(ram_dmafifo_adr(22 downto 1)) & '0') + 3) := to_integer(unsigned(ram_dmafifo_data(31 downto 24)));
+               data(to_integer(unsigned(ram_dmafifo_adr(22 downto 1)) & '0') + 2) := to_integer(unsigned(ram_dmafifo_data(23 downto 16)));
+               data(to_integer(unsigned(ram_dmafifo_adr(22 downto 1)) & '0') + 1) := to_integer(unsigned(ram_dmafifo_data(15 downto  8)));
+               data(to_integer(unsigned(ram_dmafifo_adr(22 downto 1)) & '0') + 0) := to_integer(unsigned(ram_dmafifo_data( 7 downto  0)));
                ram_dmafifo_read <= '1';
                state            <= STATE_RW1;
             else

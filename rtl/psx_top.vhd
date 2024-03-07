@@ -29,16 +29,18 @@ entity psx_top is
       exe_file_size         : in  unsigned(31 downto 0);
       exe_stackpointer      : in  unsigned(31 downto 0);
       fastboot              : in  std_logic;
+      ram8mb                : in  std_logic;
       TURBO_MEM             : in  std_logic;
       TURBO_COMP            : in  std_logic;
       TURBO_CACHE           : in  std_logic;
       TURBO_CACHE50         : in  std_logic;
       REPRODUCIBLEGPUTIMING : in  std_logic;
-      DMABLOCKATONCE        : in  std_logic;
       INSTANTSEEK           : in  std_logic;
       FORCECDSPEED          : in  std_logic_vector(2 downto 0);
       LIMITREADSPEED        : in  std_logic;
+      IGNORECDDMATIMING     : in  std_logic;
       ditherOff             : in  std_logic;
+      interlaced480pHack    : in  std_logic;
       showGunCrosshairs     : in  std_logic;
       fpscountOn            : in  std_logic;
       cdslowOn              : in  std_logic;
@@ -49,8 +51,11 @@ entity psx_top is
       PATCHSERIAL           : in  std_logic;
       noTexture             : in  std_logic;
       textureFilter         : in  std_logic_vector(1 downto 0);
+      textureFilterStrength : in  std_logic_vector(1 downto 0);
       textureFilter2DOff    : in  std_logic;
       dither24              : in  std_logic;
+      render24              : in  std_logic;
+      drawSlow              : in  std_logic;
       syncVideoOut          : in  std_logic;
       syncInterlace         : in  std_logic;
       rotate180             : in  std_logic;
@@ -58,6 +63,7 @@ entity psx_top is
       vCrop                 : in  std_logic_vector(1 downto 0);
       hCrop                 : in  std_logic;
       SPUon                 : in  std_logic;
+      SPUIRQTrigger         : in  std_logic;
       SPUSDRAM              : in  std_logic;
       REVERBOFF             : in  std_logic;
       REPRODUCIBLESPUDMA    : in  std_logic;
@@ -67,14 +73,15 @@ entity psx_top is
       ram_refresh           : out std_logic;
       ram_dataWrite         : out std_logic_vector(31 downto 0);
       ram_dataRead32        : in  std_logic_vector(31 downto 0);
-      ram_Adr               : out std_logic_vector(22 downto 0);
+      ram_Adr               : out std_logic_vector(24 downto 0);
+      ram_cntDMA            : out std_logic_vector(1 downto 0);
       ram_be                : out std_logic_vector(3 downto 0) := (others => '0');
       ram_rnw               : out std_logic;
       ram_ena               : out std_logic;
       ram_dma               : out std_logic;
       ram_cache             : out std_logic;
       ram_done              : in  std_logic;
-      ram_dmafifo_adr       : out std_logic_vector(20 downto 0);
+      ram_dmafifo_adr       : out std_logic_vector(22 downto 0);
       ram_dmafifo_data      : out std_logic_vector(31 downto 0);
       ram_dmafifo_empty     : out std_logic;
       ram_dmafifo_read      : in  std_logic;
@@ -152,8 +159,8 @@ entity psx_top is
       vsync                 : out std_logic;
       hblank                : out std_logic;
       vblank                : out std_logic;
-      DisplayWidth          : out unsigned( 9 downto 0);
-      DisplayHeight         : out unsigned( 8 downto 0);
+      DisplayWidth          : out unsigned(10 downto 0);
+      DisplayHeight         : out unsigned( 9 downto 0);
       DisplayOffsetX        : out unsigned( 9 downto 0);
       DisplayOffsetY        : out unsigned( 8 downto 0);
       video_ce              : out std_logic;
@@ -162,7 +169,10 @@ entity psx_top is
       video_g               : out std_logic_vector(7 downto 0);
       video_b               : out std_logic_vector(7 downto 0);
       video_isPal           : out std_logic;
+      video_fbmode          : out std_logic;
+      video_fb24            : out std_logic;
       video_hResMode        : out std_logic_vector(2 downto 0);
+      video_frameindex      : out std_logic_vector(3 downto 0);
 
       DSAltSwitchMode       : in  std_logic;
       joypad1               : in  joypad_t;
@@ -170,6 +180,8 @@ entity psx_top is
       joypad3               : in  joypad_t;
       joypad4               : in  joypad_t;
       multitap              : in  std_logic;
+      multitapDigital       : in  std_logic;
+      multitapAnalog        : in  std_logic;
       joypad1_rumble        : out std_logic_vector(15 downto 0);
       joypad2_rumble        : out std_logic_vector(15 downto 0);
       joypad3_rumble        : out std_logic_vector(15 downto 0);
@@ -188,6 +200,7 @@ entity psx_top is
       actionNextSnac        : in  std_logic;
       receiveValidSnac      : in  std_logic;
       ackSnac               : in  std_logic;
+      snacMC                : in  std_logic;
       receiveBufferSnac	    : in  std_logic_vector(7 downto 0);
       transmitValueSnac     : out std_logic_vector(7 downto 0);		
       selectedPort1Snac     : out std_logic;
@@ -397,6 +410,9 @@ architecture arch of psx_top is
    signal com2_delay             : unsigned(3 downto 0);
    signal com3_delay             : unsigned(3 downto 0);
    
+   signal dma_spu_timing_on      : std_logic;
+   signal dma_spu_timing_value   : unsigned(3 downto 0);
+   
    -- Memory mux
    signal memMuxIdle             : std_logic;
    
@@ -418,7 +434,7 @@ architecture arch of psx_top is
    signal ram_next_cpu           : std_logic;
    
    signal ram_cpu_dataWrite      : std_logic_vector(31 downto 0);
-   signal ram_cpu_Adr            : std_logic_vector(22 downto 0);
+   signal ram_cpu_Adr            : std_logic_vector(24 downto 0);
    signal ram_cpu_be             : std_logic_vector(3 downto 0);
    signal ram_cpu_rnw            : std_logic;
    signal ram_cpu_ena            : std_logic;
@@ -433,7 +449,7 @@ architecture arch of psx_top is
    signal vram_pause             : std_logic; 
    signal vram_paused            : std_logic; 
    signal vram_BURSTCNT          : std_logic_vector(7 downto 0) := (others => '0'); 
-   signal vram_ADDR              : std_logic_vector(19 downto 0) := (others => '0');                       
+   signal vram_ADDR              : std_logic_vector(27 downto 0) := (others => '0');                       
    signal vram_DIN               : std_logic_vector(63 downto 0) := (others => '0');
    signal vram_BE                : std_logic_vector(7 downto 0) := (others => '0'); 
    signal vram_WE                : std_logic := '0';
@@ -454,12 +470,14 @@ architecture arch of psx_top is
    signal irq_LIGHTPEN           : std_logic;
    
    -- dma
-   signal cpuPaused              : std_logic;
+   signal cpuPaused              : std_logic := '0';
    signal dmaOn                  : std_logic;
    signal dmaRequest             : std_logic;
+   signal dmaStallCPU            : std_logic;
    signal canDMA                 : std_logic;
+   signal ignoreDMACDTiming      : std_logic;
    
-   signal ram_dma_Adr            : std_logic_vector(20 downto 0);
+   signal ram_dma_Adr            : std_logic_vector(22 downto 0);
    signal ram_dma_ena            : std_logic;
    
    signal dma_cache_Adr          : std_logic_vector(20 downto 0);
@@ -496,7 +514,6 @@ architecture arch of psx_top is
    
    -- cpu
    signal ce_intern              : std_logic := '0';
-   signal ce_cpu                 : std_logic := '0';
    signal stallNext              : std_logic;
    
    -- GTE
@@ -544,9 +561,12 @@ architecture arch of psx_top is
    signal Gun1Y_scanlines        : unsigned(8 downto 0);
    signal Gun2Y_scanlines        : unsigned(8 downto 0);
    signal Gun1AimOffscreen       : std_logic;
-   signal Gun2AimOffscreen       : std_logic;
+   signal Gun2AimOffscreen       : std_logic;   
+   signal Gun1offscreen          : std_logic;
+   signal Gun2offscreen          : std_logic;
    signal Gun1IRQ10              : std_logic;
    signal Gun2IRQ10              : std_logic;
+   signal JustifierIrqEnable     : std_logic_vector(1 downto 0);
 
    -- memcard
    signal memcard1_pause         : std_logic;
@@ -720,7 +740,7 @@ begin
    Pause_Idle <= SS_Idle_gpu and SS_Idle_mdec and Pause_idle_cd and SS_idle_spu and SS_idle_pad and SS_idle_irq and SS_idle_cpu and SS_idle_gte and SS_idle_dma; 
    
    -- ce generation
-   canDMA <= memMuxIdle and not stallNext;
+   canDMA <= memMuxIdle;
    
    isPaused <= pausing;
    
@@ -731,7 +751,6 @@ begin
          if (reset = '1' or pausing = '1') then
          
             ce        <= '0';
-            ce_cpu    <= '0';
             if (reset_intern = '1') then
                cpuPaused <= '0';
             end if;
@@ -752,29 +771,24 @@ begin
          else
       
             ce        <= '1';
-            ce_cpu    <= '1';
          
             if (reset_intern = '1') then
                cpuPaused <= '0';
             else
          
                -- switch to pause when CD data fetch is slow
-               if ((pauseCD = '1') and cpuPaused = '0' and dmaRequest = '0' and canDMA = '1' and Pause_Idle = '1') then
+               if ((pauseCD = '1') and cpuPaused = '0' and dmaRequest = '0' and canDMA = '1' and stallNext = '0' and Pause_Idle = '1') then
                   pausing   <= '1';
                   ce        <= '0';
-                  ce_cpu    <= '0';
                -- switch to pause/savestate pausing
-               elsif ((pause = '1' or savestate_pause = '1' or memcard1_pause = '1' or memcard2_pause = '1') and cpuPaused = '0' and dmaRequest = '0' and canDMA = '1' and SS_idle = '1') then
+               elsif ((pause = '1' or savestate_pause = '1' or memcard1_pause = '1' or memcard2_pause = '1') and cpuPaused = '0' and dmaRequest = '0' and canDMA = '1' and stallNext = '0' and SS_idle = '1') then
                   pausing   <= '1';
                   pausingSS <= '1';
                   ce        <= '0';
-                  ce_cpu    <= '0';
                elsif ((cpuPaused = '1' and dmaOn = '1') or (dmaRequest = '1' and canDMA = '1')) then -- switch to dma
                   cpuPaused <= '1';
-                  ce_cpu    <= '0';
                elsif (dmaOn = '0') then -- switch to CPU
                   cpuPaused <= '0';
-                  ce_cpu    <= '1';
                end if;
                
             end if;
@@ -823,12 +837,10 @@ begin
          
          debugmodeOn <= '0';
          if (REPRODUCIBLEGPUTIMING = '1') then debugmodeOn <= '1'; end if;
-         if (DMABLOCKATONCE        = '1') then debugmodeOn <= '1'; end if;
          if (noTexture             = '1') then debugmodeOn <= '1'; end if;
          if (SPUon                 = '0') then debugmodeOn <= '1'; end if;
          if (REVERBOFF             = '1') then debugmodeOn <= '1'; end if;
          if (REPRODUCIBLESPUDMA    = '1') then debugmodeOn <= '1'; end if;
-         if (videoout_on           = '0') then debugmodeOn <= '1'; end if;
          if (PATCHSERIAL           = '1') then debugmodeOn <= '1'; end if;
          
       end if;
@@ -981,6 +993,10 @@ begin
       com2_delay           => com2_delay,
       com3_delay           => com3_delay,
       
+      dma_spu_timing_on    => dma_spu_timing_on,   
+      dma_spu_timing_value => dma_spu_timing_value,
+      
+      loading_savestate    => loading_savestate,
       SS_reset             => SS_reset,
       SS_DataWrite         => SS_DataWrite,
       SS_Adr               => SS_Adr(4 downto 0),      
@@ -1000,6 +1016,9 @@ begin
 
    Gun1AimOffscreen <= '1' when Gun1X = x"00" or Gun1X = x"FF" or Gun1Y = x"00" or Gun1Y = x"FF" else '0';
    Gun2AimOffscreen <= '1' when Gun2X = x"00" or Gun2X = x"FF" or Gun2Y = x"00" or Gun2Y = x"FF" else '0';
+
+   Gun1offscreen <= '1' when (Gun1AimOffscreen = '1' or joypad1.KeyTriangle = '1') else '0';
+   Gun2offscreen <= '1' when (Gun2AimOffscreen = '1' or joypad2.KeyTriangle = '1') else '0';
 
    Gun1CrosshairOn <= '1' when
                       showGunCrosshairs = '1' and
@@ -1033,6 +1052,8 @@ begin
       joypad3              => joypad3,
       joypad4              => joypad4,
       multitap             => multitap,
+      multitapDigital      => multitapDigital,
+      multitapAnalog       => multitapAnalog,
       joypad1_rumble       => joypad1_rumble,
       joypad2_rumble       => joypad2_rumble,
       joypad3_rumble       => joypad3_rumble,
@@ -1055,6 +1076,7 @@ begin
       Gun2Y_scanlines      => Gun2Y_scanlines,
       Gun1AimOffscreen     => Gun1AimOffscreen,
       Gun2AimOffscreen     => Gun2AimOffscreen,
+      JustifierIrqEnable   => JustifierIrqEnable,
       
       snacPort1_in         => snacport1,
       snacPort2_in         => snacport2,      
@@ -1067,6 +1089,7 @@ begin
       actionNextSnac       => actionNextSnac,
       receiveValidSnac     => receiveValidSnac,
       ackSnac              => ackSnac,
+      snacMC               => snacMC,
       
       mem1_request         => memDDR3card1_request,   
       mem1_BURSTCNT        => memDDR3card1_BURSTCNT,  
@@ -1147,6 +1170,7 @@ begin
       bus_writeMask        => bus_sio_writeMask,
       bus_dataRead         => bus_sio_dataRead,
       
+      loading_savestate    => loading_savestate,
       SS_reset             => SS_reset,
       SS_DataWrite         => SS_DataWrite,
       SS_Adr               => SS_Adr(2 downto 0),      
@@ -1157,8 +1181,10 @@ begin
    
    irq_SIO       <= '0'; -- todo
    irq_LIGHTPEN  <= '1' when
-                    (Gun1IRQ10 = '1' and joypad1.PadPortJustif = '1') or
-                    (Gun2IRQ10 = '1' and joypad2.PadPortJustif = '1')
+                    (irq10Snac = '1' and snacport1 = '1') or
+                    (irq10Snac = '1' and snacport2 = '1') or
+                    (Gun1IRQ10 = '1' and joypad1.PadPortJustif = '1' and JustifierIrqEnable(0) = '1') or
+                    (Gun2IRQ10 = '1' and joypad2.PadPortJustif = '1' and JustifierIrqEnable(1) = '1')
                  else '0';
 
    iirq : entity work.irq
@@ -1179,7 +1205,6 @@ begin
       irq_SIO              => irq_SIO,     
       irq_SPU              => irq_SPU,     
       irq_LIGHTPEN         => irq_LIGHTPEN,
-      irq10Snac            => irq10Snac,
       
       bus_addr             => bus_irq_addr,     
       bus_dataWrite        => bus_irq_dataWrite,
@@ -1202,6 +1227,8 @@ begin
       SS_idle              => SS_idle_irq
    );
    
+   ignoreDMACDTiming <= '1' when (TURBO_MEM = '1' or IGNORECDDMATIMING = '1' or unsigned(FORCECDSPEED) >= 3) else '0';
+   
    idma : entity work.dma
    port map
    (
@@ -1216,15 +1243,19 @@ begin
       errorDMAFIFO         => errorDMAFIFO, 
       
       TURBO                => TURBO_COMP,
-      DMABLOCKATONCE       => DMABLOCKATONCE,
+      TURBO_CACHE          => TURBO_CACHE,
+      ram8mb               => ram8mb,
+      ignoreCDTiming       => ignoreDMACDTiming,
       
       canDMA               => canDMA,
       cpuPaused            => cpuPaused,
       dmaRequest           => dmaRequest,
+      dmaStallCPU          => dmaStallCPU,
       dmaOn                => dmaOn,
       irqOut               => irq_DMA,
       
       ram_Adr              => ram_dma_Adr,  
+      ram_cnt              => ram_cntDMA,  
       ram_ena              => ram_dma_ena,
       
       dma_wr               => dma_wr, 
@@ -1254,9 +1285,13 @@ begin
       DMA_MDEC_write       => DMA_MDEC_write,      
       DMA_MDEC_read        => DMA_MDEC_read,   
 
+      cd_memctrl           => cd_memctrl,
+      com0_delay           => com0_delay,
       DMA_CD_readEna       => DMA_CD_readEna,
       DMA_CD_read          => DMA_CD_read,   
       
+      spu_timing_on        => dma_spu_timing_on,   
+      spu_timing_value     => dma_spu_timing_value,
       spu_dmaRequest       => spu_dmaRequest, 
       DMA_SPU_writeEna     => DMA_SPU_writeEna,   
       DMA_SPU_readEna      => DMA_SPU_readEna,    
@@ -1269,6 +1304,7 @@ begin
       bus_write            => bus_dma_write,    
       bus_dataRead         => bus_dma_dataRead,
       
+      loading_savestate    => loading_savestate,
       SS_reset             => SS_reset,
       SS_DataWrite         => SS_DataWrite,
       SS_Adr               => SS_Adr(5 downto 0),      
@@ -1281,12 +1317,16 @@ begin
    ram_refresh   <= reset_intern;
    
    ram_dataWrite <=                                                ram_cpu_dataWrite;
-   ram_Adr       <= "00" & ram_dma_Adr when (cpuPaused = '1') else ram_cpu_Adr;      
    ram_be        <=                                                ram_cpu_be;       
    ram_rnw       <= '1'                when (cpuPaused = '1') else ram_cpu_rnw;      
    ram_ena       <= ram_dma_ena        when (cpuPaused = '1') else ram_cpu_ena;      
    ram_dma       <= '1'                when (cpuPaused = '1') else '0';      
    ram_cache     <= '0'                when (cpuPaused = '1') else ram_cpu_cache;    
+   
+   ram_Adr       <=   "00" & ram_dma_Adr(22 downto 0) when (cpuPaused = '1' and ram8mb = '1') else 
+                    "0000" & ram_dma_Adr(20 downto 0) when (cpuPaused = '1' and ram8mb = '0') else 
+                    ram_cpu_Adr(24 downto 23) &        ram_cpu_Adr(22 downto 0) when (ram8mb = '1') else
+                    ram_cpu_Adr(24 downto 23) & "00" & ram_cpu_Adr(20 downto 0);
    
    process (clk1x)
    begin
@@ -1333,6 +1373,7 @@ begin
       export_t_current2    => export_t_current2,
 -- synthesis translate_on
       
+      loading_savestate    => loading_savestate,
       SS_reset             => SS_reset,
       SS_DataWrite         => SS_DataWrite,
       SS_Adr               => SS_Adr(3 downto 0),      
@@ -1420,6 +1461,7 @@ begin
       system_paused        => pausing,
       
       ditherOff            => ditherOff,
+      interlaced480pHack   => interlaced480pHack,
       REPRODUCIBLEGPUTIMING=> REPRODUCIBLEGPUTIMING,
       videoout_on          => videoout_on,
       isPal                => isPal,
@@ -1427,8 +1469,11 @@ begin
       fpscountOn           => fpscountOn,
       noTexture            => noTexture,
       textureFilter        => textureFilter,
+      textureFilterStrength=> textureFilterStrength,
       textureFilter2DOff   => textureFilter2DOff,
       dither24             => dither24,
+      render24             => render24,
+      drawSlow             => drawSlow,
       debugmodeOn          => debugmodeOn,
       syncVideoOut         => syncVideoOut,
       syncInterlace        => syncInterlace,
@@ -1440,11 +1485,13 @@ begin
       Gun1CrosshairOn      => Gun1CrosshairOn,
       Gun1X                => Gun1X,
       Gun1Y_scanlines      => Gun1Y_scanlines,
+      Gun1offscreen        => Gun1offscreen,
       Gun1IRQ10            => Gun1IRQ10,
 
       Gun2CrosshairOn      => Gun2CrosshairOn,
       Gun2X                => Gun2X,
       Gun2Y_scanlines      => Gun2Y_scanlines,
+      Gun2offscreen        => Gun2offscreen,
       Gun2IRQ10            => Gun2IRQ10,
 
       cdSlow               => cdslowEna,
@@ -1511,7 +1558,10 @@ begin
       video_g              => video_g, 
       video_b              => video_b, 
       video_isPal          => video_isPal, 
+      video_fbmode         => video_fbmode, 
+      video_fb24           => video_fb24, 
       video_hResMode       => video_hResMode, 
+      video_frameindex     => video_frameindex,
       
 -- synthesis translate_off
       export_gtm           => export_gtm,
@@ -1574,6 +1624,7 @@ begin
       reset                => reset_intern,     
       
       SPUon                => SPUon,
+      SPUIRQTrigger        => SPUIRQTrigger,
       useSDRAM             => SPUSDRAM,
       REPRODUCIBLESPUIRQ   => '1',
       REPRODUCIBLESPUDMA   => REPRODUCIBLESPUDMA,
@@ -1624,6 +1675,7 @@ begin
       mem_DOUT_READY       => ddr3_DOUT_READY,
       
       SS_reset             => SS_reset,
+      loading_savestate    => loading_savestate,
       SS_DataWrite         => SS_DataWrite,
       SS_Adr               => SS_Adr(8 downto 0),  
       SS_wren              => SS_wren(9),     
@@ -1658,9 +1710,10 @@ begin
    (
       clk1x                => clk1x,
       clk2x                => clk2x,
-      ce                   => ce_cpu,   
+      ce                   => ce,   
       reset                => reset_intern,
       
+      pauseNext            => cpuPaused or (dmaRequest and canDMA),
       isIdle               => memMuxIdle,
          
       loadExe              => loadExe,
@@ -1812,8 +1865,7 @@ begin
       clk1x             => clk1x,
       clk2x             => clk2x,
       clk3x             => clk3x,
-      ce                => ce_cpu,   
-      ce_system         => ce,
+      ce                => ce,   
       reset             => reset_intern,
       
       TURBO             => TURBO_COMP,
@@ -1821,7 +1873,8 @@ begin
       TURBO_CACHE50     => TURBO_CACHE50,
          
       irqRequest        => irqRequest,
-      dmaRequest        => dmaRequest,
+      dmaStallCPU       => dmaStallCPU,
+      cpuPaused         => cpuPaused,
       
       error             => errorCPU,
       error2            => errorCPU2,
@@ -1852,6 +1905,7 @@ begin
       dma_cache_write   => dma_cache_write,  
       
       ram_dataRead      => ram_dataRead32,    
+      ram_rnw           => ram_cpu_rnw,
       ram_done          => ram_cpu_done,
       
       gte_busy          => gte_busy, 
@@ -1918,7 +1972,7 @@ begin
    );
    
    ddr3_BURSTCNT <= ss_ram_BURSTCNT     when (ddr3_savestate = '1') else arbiter_BURSTCNT when (arbiter_active = '1') else  vram_BURSTCNT;  
-   ddr3_ADDR     <= ss_ram_ADDR & "00"  when (ddr3_savestate = '1') else arbiter_ADDR     when (arbiter_active = '1') else  x"00" & vram_ADDR;      
+   ddr3_ADDR     <= ss_ram_ADDR & "00"  when (ddr3_savestate = '1') else arbiter_ADDR     when (arbiter_active = '1') else  vram_ADDR;      
    ddr3_DIN      <= ss_ram_DIN          when (ddr3_savestate = '1') else arbiter_DIN      when (arbiter_active = '1') else  vram_DIN;       
    ddr3_BE       <= ss_ram_BE           when (ddr3_savestate = '1') else arbiter_BE       when (arbiter_active = '1') else  vram_BE;        
    ddr3_WE       <= ss_ram_WE           when (ddr3_savestate = '1') else arbiter_WE       when (arbiter_active = '1') else  vram_WE;        

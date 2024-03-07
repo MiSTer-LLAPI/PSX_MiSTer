@@ -83,7 +83,7 @@ begin
    videoout_ss_out.GPUSTAT_InterlaceField <= videoout_reports.GPUSTAT_InterlaceField;
    videoout_ss_out.GPUSTAT_DrawingOddline <= videoout_reports.GPUSTAT_DrawingOddline;
 
-   videoout_request.fetchsize <= videoout_out.DisplayWidth;
+   videoout_request.fetchsize <= videoout_out.DisplayWidth(9 downto 0);
 
    process (clk1x)
       variable mode480i                  : std_logic;
@@ -278,6 +278,9 @@ begin
    videoout_out.DisplayOffsetX <= videoout_settings.vramRange(9 downto 0);
    videoout_out.DisplayOffsetY <= videoout_settings.vramRange(18 downto 10);
    
+   videoout_out.DisplayWidthReal  <= videoout_out.DisplayWidth; 
+   videoout_out.DisplayHeightReal <= videoout_out.DisplayHeight;
+   
    process (clk2x)
    begin
       if rising_edge(clk2x) then
@@ -297,21 +300,21 @@ begin
          end if;
             
          if (videoout_settings.GPUSTAT_HorRes2 = '1') then
-            videoout_out.DisplayWidth  <= to_unsigned(368, 10);
+            videoout_out.DisplayWidth  <= to_unsigned(368, 11);
          else
             case (videoout_settings.GPUSTAT_HorRes1) is
-               when "00" => videoout_out.DisplayWidth <= to_unsigned(256, 10);
-               when "01" => videoout_out.DisplayWidth <= to_unsigned(320, 10);
-               when "10" => videoout_out.DisplayWidth <= to_unsigned(512, 10);
-               when "11" => videoout_out.DisplayWidth <= to_unsigned(640, 10);
+               when "00" => videoout_out.DisplayWidth <= to_unsigned(256, 11);
+               when "01" => videoout_out.DisplayWidth <= to_unsigned(320, 11);
+               when "10" => videoout_out.DisplayWidth <= to_unsigned(512, 11);
+               when "11" => videoout_out.DisplayWidth <= to_unsigned(640, 11);
                when others => null;
             end case;
          end if;
             
          if (videoout_settings.GPUSTAT_VerRes = '1') then
-            videoout_out.DisplayHeight  <= to_unsigned(480, 9);
+            videoout_out.DisplayHeight  <= to_unsigned(480, 10);
          else
-            videoout_out.DisplayHeight  <= to_unsigned(240, 9);
+            videoout_out.DisplayHeight  <= to_unsigned(240, 10);
          end if;
          
          if (reset = '1') then
