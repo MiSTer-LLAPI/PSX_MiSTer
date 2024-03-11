@@ -537,23 +537,15 @@ wire [15:0] joystick_usb_analog_r2;
 wire [15:0] joystick_usb_analog_l3;
 wire [15:0] joystick_usb_analog_r3;
 
-wire [7:0] joystick_analog_l0x;
-wire [7:0] joystick_analog_r0x;
-wire [7:0] joystick_analog_l1x;
-wire [7:0] joystick_analog_r1x;
-wire [7:0] joystick_analog_l2x;
-wire [7:0] joystick_analog_r2x;
-wire [7:0] joystick_analog_l3x;
-wire [7:0] joystick_analog_r3x;
+wire [15:0] joystick_analog_l0;
+wire [15:0] joystick_analog_r0;
+wire [15:0] joystick_analog_l1;
+wire [15:0] joystick_analog_r1;
+wire [15:0] joystick_analog_l2;
+wire [15:0] joystick_analog_r2;
+wire [15:0] joystick_analog_l3;
+wire [15:0] joystick_analog_r3;
 
-wire [7:0] joystick_analog_l0y;
-wire [7:0] joystick_analog_r0y;
-wire [7:0] joystick_analog_l1y;
-wire [7:0] joystick_analog_r1y;
-wire [7:0] joystick_analog_l2y;
-wire [7:0] joystick_analog_r2y;
-wire [7:0] joystick_analog_l3y;
-wire [7:0] joystick_analog_r3y;
 //END LLAPI
 
 
@@ -921,7 +913,7 @@ reg paddleMode = 0;
 reg paddleMin = 0;
 reg paddleMax = 0;
 //LLAPI
-wire [7:0] joy0_xmuxed = (paddleMode) ? (paddle_0 - 8'd128) : joystick_analog_l0x;
+wire [7:0] joy0_xmuxed = (paddleMode) ? (paddle_0 - 8'd128) : joystick_analog_l0[7:0];
 //END LLAPI
 // to activate paddleMode negcon mode must be active and paddle must best moved
 always @(posedge clk_1x) begin
@@ -1181,25 +1173,17 @@ always_comb begin
                 joy3 = joy_usb_0;
                 joy4 = joy_usb_1;
 				
-				joystick_analog_l0x = axis_ll_a_lx;
-				joystick_analog_l0y = axis_ll_a_ly;
-				joystick_analog_r0x = axis_ll_a_rx;
-				joystick_analog_r0y = axis_ll_a_ry;
+				joystick_analog_l0 = {axis_ll_a_ly, axis_ll_a_lx};
+				joystick_analog_r0 = {axis_ll_a_ry, axis_ll_a_rx};
 				
-				joystick_analog_l1x = axis_ll_b_lx;
-				joystick_analog_l1y = axis_ll_b_ly;
-				joystick_analog_r1x = axis_ll_b_rx;
-				joystick_analog_r1y = axis_ll_b_ry;
+				joystick_analog_l1 = {axis_ll_b_ly, axis_ll_b_lx};
+				joystick_analog_r1 = {axis_ll_b_ry, axis_ll_b_rx};	
 				
-				joystick_analog_l2x = joystick_usb_analog_l0[7:0];
-				joystick_analog_l2y = joystick_usb_analog_l0[15:8];
-				joystick_analog_r2x = joystick_usb_analog_r0[7:0];
-				joystick_analog_r2y = joystick_usb_analog_r0[15:8];
+				joystick_analog_l2 = joystick_usb_analog_l0;
+				joystick_analog_r2 = joystick_usb_analog_r0;
 				
-				joystick_analog_l3x = joystick_usb_analog_l1[7:0];
-				joystick_analog_l3y = joystick_usb_analog_l1[15:8];
-				joystick_analog_r3x = joystick_usb_analog_r1[7:0];
-				joystick_analog_r3y = joystick_usb_analog_r1[15:8];
+				joystick_analog_l3 = joystick_usb_analog_l1;
+				joystick_analog_r3 = joystick_usb_analog_r1;
 	
         end else if (use_llapi ^ use_llapi2) begin
                 joy = use_llapi  ? joy_ll_a : joy_usb_0;
@@ -1207,25 +1191,17 @@ always_comb begin
                 joy3 = joy_usb_1;
                 joy4 = joy_usb_2;
 				
-				joystick_analog_l0x = use_llapi ? axis_ll_a_lx : joystick_usb_analog_l0[7:0];
-				joystick_analog_l0y = use_llapi ? axis_ll_a_ly : joystick_usb_analog_l0[15:8];
-				joystick_analog_r0x = use_llapi ? axis_ll_a_rx : joystick_usb_analog_r0[7:0];
-				joystick_analog_r0y = use_llapi ? axis_ll_a_ry : joystick_usb_analog_r0[15:8];
+				joystick_analog_l0 = use_llapi ? {axis_ll_a_ly, axis_ll_a_lx} : joystick_usb_analog_l0;
+				joystick_analog_r0 = use_llapi ? {axis_ll_a_ry, axis_ll_a_rx} : joystick_usb_analog_r0;
 				
-				joystick_analog_l1x = use_llapi2 ? axis_ll_b_lx : joystick_usb_analog_l0[7:0];
-				joystick_analog_l1y = use_llapi2 ? axis_ll_b_ly : joystick_usb_analog_l0[15:8];
-				joystick_analog_r1x = use_llapi2 ? axis_ll_b_rx : joystick_usb_analog_r0[7:0];
-				joystick_analog_r1y = use_llapi2 ? axis_ll_b_ry : joystick_usb_analog_r0[15:8];
+				joystick_analog_l1 = use_llapi2 ? {axis_ll_a_ly, axis_ll_a_lx} : joystick_usb_analog_l0;
+				joystick_analog_r1 = use_llapi2 ? {axis_ll_b_ry, axis_ll_b_rx} : joystick_usb_analog_r0;
 				
-				joystick_analog_l2x = joystick_usb_analog_l1[7:0];
-				joystick_analog_l2y = joystick_usb_analog_l1[15:8];
-				joystick_analog_r2x = joystick_usb_analog_r1[7:0];
-				joystick_analog_r2y = joystick_usb_analog_r1[15:8];
+				joystick_analog_l2 = joystick_usb_analog_l1;
+				joystick_analog_r2 = joystick_usb_analog_r1;
 				
-				joystick_analog_l3x = joystick_usb_analog_l2[7:0];
-				joystick_analog_l3y = joystick_usb_analog_l2[15:8];
-				joystick_analog_r3x = joystick_usb_analog_r2[7:0];
-				joystick_analog_r3y = joystick_usb_analog_r2[15:8];
+				joystick_analog_l3 = joystick_usb_analog_l2;
+				joystick_analog_r3 = joystick_usb_analog_r2;
 				
         end else begin
                 joy = joy_usb_0;
@@ -1233,25 +1209,17 @@ always_comb begin
                 joy3 = joy_usb_2;
                 joy4 = joy_usb_3;
 				
-				joystick_analog_l0x = joystick_usb_analog_l1[7:0];
-				joystick_analog_l0y = joystick_usb_analog_l1[15:8];
-				joystick_analog_r0x = joystick_usb_analog_r1[7:0];
-				joystick_analog_r0y = joystick_usb_analog_r1[15:8];
+				joystick_analog_l0 = joystick_usb_analog_l0;
+				joystick_analog_r0 = joystick_usb_analog_r0;
 				
-				joystick_analog_l1x = joystick_usb_analog_l2[7:0];
-				joystick_analog_l1y = joystick_usb_analog_l2[15:8];
-				joystick_analog_r1x = joystick_usb_analog_r2[7:0];
-				joystick_analog_r1y = joystick_usb_analog_r2[15:8];
+				joystick_analog_l1 = joystick_usb_analog_l1;
+				joystick_analog_r1 = joystick_usb_analog_r1;
 				
-				joystick_analog_l2x = joystick_usb_analog_l1[7:0];
-				joystick_analog_l2y = joystick_usb_analog_l1[15:8];
-				joystick_analog_r2x = joystick_usb_analog_r1[7:0];
-				joystick_analog_r2y = joystick_usb_analog_r1[15:8];
+				joystick_analog_l2 = joystick_usb_analog_l2;
+				joystick_analog_r2 = joystick_usb_analog_r2;
 				
-				joystick_analog_l3x = joystick_usb_analog_l2[7:0];
-				joystick_analog_l3y = joystick_usb_analog_l2[15:8];
-				joystick_analog_r3x = joystick_usb_analog_r2[7:0];
-				joystick_analog_r3y = joystick_usb_analog_r2[15:8];
+				joystick_analog_l3 = joystick_usb_analog_l3;
+				joystick_analog_r3 = joystick_usb_analog_r3;
         end
 end
 
@@ -1541,24 +1509,22 @@ psx
    .KeyL2      ({joy4[12],joy3[12],joy2[12],joy[12]}),
    .KeyL3      ({joy4[14],joy3[14],joy2[14],joy[14]}),
    .ToggleDS   (ToggleDS),
-   //LLAPI
    .Analog1XP1(joy0_xmuxed),       
-   .Analog1YP1(joystick_analog_l0y),       
-   .Analog2XP1(joystick_analog_r0x),           
-   .Analog2YP1(joystick_analog_r0y),    
-   .Analog1XP2(joystick_analog_l1x),       
-   .Analog1YP2(joystick_analog_l1y),       
-   .Analog2XP2(joystick_analog_r1x),           
-   .Analog2YP2(joystick_analog_r1y),           
-   .Analog1XP3(joystick_analog_l2x),
-   .Analog1YP3(joystick_analog_l2y),
-   .Analog2XP3(joystick_analog_r2x),
-   .Analog2YP3(joystick_analog_r2y),
-   .Analog1XP4(joystick_analog_l3x),
-   .Analog1YP4(joystick_analog_l3y),
-   .Analog2XP4(joystick_analog_r3x),
-   .Analog2YP4(joystick_analog_r3y),
-   //END LLAPI
+   .Analog1YP1(joystick_analog_l0[15:8]),       
+   .Analog2XP1(joystick_analog_r0[7:0]),           
+   .Analog2YP1(joystick_analog_r0[15:8]),    
+   .Analog1XP2(joystick_analog_l1[7:0]),       
+   .Analog1YP2(joystick_analog_l1[15:8]),       
+   .Analog2XP2(joystick_analog_r1[7:0]),           
+   .Analog2YP2(joystick_analog_r1[15:8]),           
+   .Analog1XP3(joystick_analog_l2[7:0]),
+   .Analog1YP3(joystick_analog_l2[15:8]),
+   .Analog2XP3(joystick_analog_r2[7:0]),
+   .Analog2YP3(joystick_analog_r2[15:8]),
+   .Analog1XP4(joystick_analog_l3[7:0]),
+   .Analog1YP4(joystick_analog_l3[15:8]),
+   .Analog2XP4(joystick_analog_r3[7:0]),
+   .Analog2YP4(joystick_analog_r3[15:8]),
    .RumbleDataP1(joystick1_rumble),
    .RumbleDataP2(joystick2_rumble),
    .RumbleDataP3(joystick3_rumble),
