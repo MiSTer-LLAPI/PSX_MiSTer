@@ -1212,10 +1212,10 @@ always_comb begin
 				joystick_analog_r0x = use_llapi ? axis_ll_a_rx : joystick_usb_analog_r0[7:0];
 				joystick_analog_r0y = use_llapi ? axis_ll_a_ry : joystick_usb_analog_r0[15:8];
 				
-				joystick_analog_l1x = use_llapi ? axis_ll_b_lx : joystick_usb_analog_l0[7:0];
-				joystick_analog_l1y = use_llapi ? axis_ll_b_ly : joystick_usb_analog_l0[15:8];
-				joystick_analog_r1x = use_llapi ? axis_ll_b_rx : joystick_usb_analog_r0[7:0];
-				joystick_analog_r1y = use_llapi ? axis_ll_b_ry : joystick_usb_analog_r0[15:8];
+				joystick_analog_l1x = use_llapi2 ? axis_ll_b_lx : joystick_usb_analog_l0[7:0];
+				joystick_analog_l1y = use_llapi2 ? axis_ll_b_ly : joystick_usb_analog_l0[15:8];
+				joystick_analog_r1x = use_llapi2 ? axis_ll_b_rx : joystick_usb_analog_r0[7:0];
+				joystick_analog_r1y = use_llapi2 ? axis_ll_b_ry : joystick_usb_analog_r0[15:8];
 				
 				joystick_analog_l2x = joystick_usb_analog_l1[7:0];
 				joystick_analog_l2y = joystick_usb_analog_l1[15:8];
