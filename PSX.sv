@@ -522,21 +522,40 @@ wire [19:0] joy_usb_0;
 wire [19:0] joy_usb_1;
 wire [19:0] joy_usb_2;
 wire [19:0] joy_usb_3;
-//END LLAPI
 
 wire [10:0] ps2_key;
 
 wire [21:0] gamma_bus;
 wire [15:0] sdram_sz;
 
-wire [15:0] joystick_analog_l0;
-wire [15:0] joystick_analog_r0;
-wire [15:0] joystick_analog_l1;
-wire [15:0] joystick_analog_r1;
-wire [15:0] joystick_analog_l2;
-wire [15:0] joystick_analog_r2;
-wire [15:0] joystick_analog_l3;
-wire [15:0] joystick_analog_r3;
+wire [15:0] joystick_usb_analog_l0;
+wire [15:0] joystick_usb_analog_r0;
+wire [15:0] joystick_usb_analog_l1;
+wire [15:0] joystick_usb_analog_r1;
+wire [15:0] joystick_usb_analog_l2;
+wire [15:0] joystick_usb_analog_r2;
+wire [15:0] joystick_usb_analog_l3;
+wire [15:0] joystick_usb_analog_r3;
+
+wire [7:0] joystick_analog_l0x;
+wire [7:0] joystick_analog_r0x;
+wire [7:0] joystick_analog_l1x;
+wire [7:0] joystick_analog_r1x;
+wire [7:0] joystick_analog_l2x;
+wire [7:0] joystick_analog_r2x;
+wire [7:0] joystick_analog_l3x;
+wire [7:0] joystick_analog_r3x;
+
+wire [7:0] joystick_analog_l0y;
+wire [7:0] joystick_analog_r0y;
+wire [7:0] joystick_analog_l1y;
+wire [7:0] joystick_analog_r1y;
+wire [7:0] joystick_analog_l2y;
+wire [7:0] joystick_analog_r2y;
+wire [7:0] joystick_analog_l3y;
+wire [7:0] joystick_analog_r3y;
+//END LLAPI
+
 
 wire [7:0] paddle_0;
 
@@ -607,15 +626,16 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(4), .BLKSZ(3)) hps_io
 
 	.sdram_sz(sdram_sz),
 	.gamma_bus(gamma_bus),
-
-   .joystick_l_analog_0(joystick_analog_l0),
-   .joystick_r_analog_0(joystick_analog_r0),  
-   .joystick_l_analog_1(joystick_analog_l1),
-   .joystick_r_analog_1(joystick_analog_r1),   
-   .joystick_l_analog_2(joystick_analog_l2),
-   .joystick_r_analog_2(joystick_analog_r2),   
-   .joystick_l_analog_3(joystick_analog_l3),
-   .joystick_r_analog_3(joystick_analog_r3),
+//LLAPI HPS controller renamed to usb
+   .joystick_l_analog_0(joystick_usb_analog_l0),
+   .joystick_r_analog_0(joystick_usb_analog_r0),  
+   .joystick_l_analog_1(joystick_usb_analog_l1),
+   .joystick_r_analog_1(joystick_usb_analog_r1),   
+   .joystick_l_analog_2(joystick_usb_analog_l2),
+   .joystick_r_analog_2(joystick_usb_analog_r2),   
+   .joystick_l_analog_3(joystick_usb_analog_l3),
+   .joystick_r_analog_3(joystick_usb_analog_r3),
+ //LAPI END
    .ps2_mouse(mouse),
    .joystick_0_rumble(paused ? 16'h0000 : joystick1_rumble),
    .joystick_1_rumble(paused ? 16'h0000 : joystick2_rumble),
@@ -900,8 +920,9 @@ wire PadPortPopn2    = (status[52:49] == 4'b1100);
 reg paddleMode = 0;
 reg paddleMin = 0;
 reg paddleMax = 0;
-wire [7:0] joy0_xmuxed = (paddleMode) ? (paddle_0 - 8'd128) : joystick_analog_l0[7:0];
-
+//LLAPI
+wire [7:0] joy0_xmuxed = (paddleMode) ? (paddle_0 - 8'd128) : joystick_analog_l0x;
+//END LLAPI
 // to activate paddleMode negcon mode must be active and paddle must best moved
 always @(posedge clk_1x) begin
    if (PadPortNeGcon1) begin
@@ -1086,6 +1107,9 @@ wire use_llapi2 = llapi_en2 && llapi_select && ((|llapi_type2 && ~(&llapi_type2)
 //Port 1 mapping
 
 wire [19:0] joy_ll_a;
+wire [7:0] axis_ll_a_lx, axis_ll_a_rx;
+wire [7:0] axis_ll_a_ly, axis_ll_a_ry;
+
 always_comb begin
 	// map for saturn controller
 	// use L and R instead of top face buttons
@@ -1106,12 +1130,19 @@ always_comb begin
 			llapi_buttons[2],  llapi_buttons[0], llapi_buttons[1], llapi_buttons[3], // [] X O T
 			llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] // d-pad
 		};
+		axis_ll_a_lx = llapi_analog[7:0] - 128; //Left stick X
+		axis_ll_a_ly = llapi_analog[15:8] - 128; //Left stick Y		
+		axis_ll_a_rx = llapi_analog[31:24] - 128 ; //Right stick X
+		axis_ll_a_ry = llapi_analog[39:32] - 128; //Right stick Y
 	//end
 end
 
 //Port 2 mapping
 
 wire [19:0] joy_ll_b;
+wire [7:0] axis_ll_b_lx, axis_ll_b_rx;
+wire [7:0] axis_ll_b_ly, axis_ll_b_ry;
+
 always_comb begin
 	// map for saturn controller
 	// use L and R instead of top face buttons
@@ -1132,6 +1163,10 @@ always_comb begin
 			llapi_buttons2[2],  llapi_buttons2[0],  llapi_buttons2[1],  llapi_buttons2[3], // [] X O T
 			llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // d-pad
 		};
+		axis_ll_b_lx = llapi_analog2[7:0] - 128; //Left stick X
+		axis_ll_b_ly = llapi_analog2[15:8] - 128; //Left stick Y		
+		axis_ll_b_rx = llapi_analog2[31:24] - 128 ; //Right stick X
+		axis_ll_b_ry = llapi_analog2[39:32] - 128; //Right stick Y
 	//end
 end
 
@@ -1145,16 +1180,78 @@ always_comb begin
                 joy2 = joy_ll_b;
                 joy3 = joy_usb_0;
                 joy4 = joy_usb_1;
+				
+				joystick_analog_l0x = axis_ll_a_lx;
+				joystick_analog_l0y = axis_ll_a_ly;
+				joystick_analog_r0x = axis_ll_a_rx;
+				joystick_analog_r0y = axis_ll_a_ry;
+				
+				joystick_analog_l1x = axis_ll_b_lx;
+				joystick_analog_l1y = axis_ll_b_ly;
+				joystick_analog_r1x = axis_ll_b_rx;
+				joystick_analog_r1y = axis_ll_b_ry;
+				
+				joystick_analog_l2x = joystick_usb_analog_l0[7:0];
+				joystick_analog_l2y = joystick_usb_analog_l0[15:8];
+				joystick_analog_r2x = joystick_usb_analog_r0[7:0];
+				joystick_analog_r2y = joystick_usb_analog_r0[15:8];
+				
+				joystick_analog_l3x = joystick_usb_analog_l1[7:0];
+				joystick_analog_l3y = joystick_usb_analog_l1[15:8];
+				joystick_analog_r3x = joystick_usb_analog_r1[7:0];
+				joystick_analog_r3y = joystick_usb_analog_r1[15:8];
+	
         end else if (use_llapi ^ use_llapi2) begin
                 joy = use_llapi  ? joy_ll_a : joy_usb_0;
                 joy2 = use_llapi2 ? joy_ll_b : joy_usb_0;
                 joy3 = joy_usb_1;
                 joy4 = joy_usb_2;
+				
+				joystick_analog_l0x = use_llapi ? axis_ll_a_lx : joystick_usb_analog_l0[7:0];
+				joystick_analog_l0y = use_llapi ? axis_ll_a_ly : joystick_usb_analog_l0[15:8];
+				joystick_analog_r0x = use_llapi ? axis_ll_a_rx : joystick_usb_analog_r0[7:0];
+				joystick_analog_r0y = use_llapi ? axis_ll_a_ry : joystick_usb_analog_r0[15:8];
+				
+				joystick_analog_l1x = use_llapi ? axis_ll_b_lx : joystick_usb_analog_l0[7:0];
+				joystick_analog_l1y = use_llapi ? axis_ll_b_ly : joystick_usb_analog_l0[15:8];
+				joystick_analog_r1x = use_llapi ? axis_ll_b_rx : joystick_usb_analog_r0[7:0];
+				joystick_analog_r1y = use_llapi ? axis_ll_b_ry : joystick_usb_analog_r0[15:8];
+				
+				joystick_analog_l2x = joystick_usb_analog_l1[7:0];
+				joystick_analog_l2y = joystick_usb_analog_l1[15:8];
+				joystick_analog_r2x = joystick_usb_analog_r1[7:0];
+				joystick_analog_r2y = joystick_usb_analog_r1[15:8];
+				
+				joystick_analog_l3x = joystick_usb_analog_l2[7:0];
+				joystick_analog_l3y = joystick_usb_analog_l2[15:8];
+				joystick_analog_r3x = joystick_usb_analog_r2[7:0];
+				joystick_analog_r3y = joystick_usb_analog_r2[15:8];
+				
         end else begin
                 joy = joy_usb_0;
                 joy2 = joy_usb_1;
                 joy3 = joy_usb_2;
                 joy4 = joy_usb_3;
+				
+				joystick_analog_l0x = joystick_usb_analog_l1[7:0];
+				joystick_analog_l0y = joystick_usb_analog_l1[15:8];
+				joystick_analog_r0x = joystick_usb_analog_r1[7:0];
+				joystick_analog_r0y = joystick_usb_analog_r1[15:8];
+				
+				joystick_analog_l1x = joystick_usb_analog_l2[7:0];
+				joystick_analog_l1y = joystick_usb_analog_l2[15:8];
+				joystick_analog_r1x = joystick_usb_analog_r2[7:0];
+				joystick_analog_r1y = joystick_usb_analog_r2[15:8];
+				
+				joystick_analog_l2x = joystick_usb_analog_l1[7:0];
+				joystick_analog_l2y = joystick_usb_analog_l1[15:8];
+				joystick_analog_r2x = joystick_usb_analog_r1[7:0];
+				joystick_analog_r2y = joystick_usb_analog_r1[15:8];
+				
+				joystick_analog_l3x = joystick_usb_analog_l2[7:0];
+				joystick_analog_l3y = joystick_usb_analog_l2[15:8];
+				joystick_analog_r3x = joystick_usb_analog_r2[7:0];
+				joystick_analog_r3y = joystick_usb_analog_r2[15:8];
         end
 end
 
@@ -1444,22 +1541,24 @@ psx
    .KeyL2      ({joy4[12],joy3[12],joy2[12],joy[12]}),
    .KeyL3      ({joy4[14],joy3[14],joy2[14],joy[14]}),
    .ToggleDS   (ToggleDS),
+   //LLAPI
    .Analog1XP1(joy0_xmuxed),       
-   .Analog1YP1(joystick_analog_l0[15:8]),       
-   .Analog2XP1(joystick_analog_r0[7:0]),           
-   .Analog2YP1(joystick_analog_r0[15:8]),    
-   .Analog1XP2(joystick_analog_l1[7:0]),       
-   .Analog1YP2(joystick_analog_l1[15:8]),       
-   .Analog2XP2(joystick_analog_r1[7:0]),           
-   .Analog2YP2(joystick_analog_r1[15:8]),           
-   .Analog1XP3(joystick_analog_l2[7:0]),
-   .Analog1YP3(joystick_analog_l2[15:8]),
-   .Analog2XP3(joystick_analog_r2[7:0]),
-   .Analog2YP3(joystick_analog_r2[15:8]),
-   .Analog1XP4(joystick_analog_l3[7:0]),
-   .Analog1YP4(joystick_analog_l3[15:8]),
-   .Analog2XP4(joystick_analog_r3[7:0]),
-   .Analog2YP4(joystick_analog_r3[15:8]),
+   .Analog1YP1(joystick_analog_l0y),       
+   .Analog2XP1(joystick_analog_r0x),           
+   .Analog2YP1(joystick_analog_r0y),    
+   .Analog1XP2(joystick_analog_l1x),       
+   .Analog1YP2(joystick_analog_l1y),       
+   .Analog2XP2(joystick_analog_r1x),           
+   .Analog2YP2(joystick_analog_r1y),           
+   .Analog1XP3(joystick_analog_l2x),
+   .Analog1YP3(joystick_analog_l2y),
+   .Analog2XP3(joystick_analog_r2x),
+   .Analog2YP3(joystick_analog_r2y),
+   .Analog1XP4(joystick_analog_l3x),
+   .Analog1YP4(joystick_analog_l3y),
+   .Analog2XP4(joystick_analog_r3x),
+   .Analog2YP4(joystick_analog_r3y),
+   //END LLAPI
    .RumbleDataP1(joystick1_rumble),
    .RumbleDataP2(joystick2_rumble),
    .RumbleDataP3(joystick3_rumble),
