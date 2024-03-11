@@ -912,9 +912,9 @@ wire PadPortPopn2    = (status[52:49] == 4'b1100);
 reg paddleMode = 0;
 reg paddleMin = 0;
 reg paddleMax = 0;
-//LLAPI
+
 wire [7:0] joy0_xmuxed = (paddleMode) ? (paddle_0 - 8'd128) : joystick_analog_l0[7:0];
-//END LLAPI
+
 // to activate paddleMode negcon mode must be active and paddle must best moved
 always @(posedge clk_1x) begin
    if (PadPortNeGcon1) begin
