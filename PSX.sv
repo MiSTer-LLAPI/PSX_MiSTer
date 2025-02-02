@@ -1000,6 +1000,7 @@ always @(posedge clk_1x) begin
 
 end
 
+
 //////////////////   LLAPI   ///////////////////
 
 wire [31:0] llapi_buttons, llapi_buttons2;
@@ -1007,13 +1008,12 @@ wire [71:0] llapi_analog, llapi_analog2;
 wire [7:0]  llapi_type, llapi_type2;
 wire llapi_en, llapi_en2;
 wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
-wire [11:0] joy_ll_a;
-wire [11:0] joy_ll_b;
+wire [15:0] joy_ll_a;
+wire [15:0] joy_ll_b;
 wire [7:0] axis_ll_b_lx, axis_ll_b_rx;
 wire [7:0] axis_ll_b_ly, axis_ll_b_ry;
 wire [7:0] axis_ll_a_lx, axis_ll_a_rx;
 wire [7:0] axis_ll_a_ly, axis_ll_a_ry;
-wire [11:0] joy_0, joy_1, joy_2, joy_3, joy_4;
 
 //Assign (DOWN + START + FIRST BUTTON) Combinaison to bring the OSD up - P1 and P2 ports.
 wire llapi_osd = (llapi_buttons[26] & llapi_buttons[5] & llapi_buttons[0]) || (llapi_buttons2[26] & llapi_buttons2[5] & llapi_buttons2[0]);
@@ -1134,37 +1134,19 @@ always_comb begin
 	//end
 end
 
-// if LLAPI is enabled, shift USB controllers over to the next available player slot
+// Player / LLAPI port allocation
 always_comb begin
-         if (use_llapi & use_llapi2) begin
-                joy = joy_ll_a;
-                joy2 = joy_ll_b;
-                joy3 = joy_usb_0;
-                joy4 = joy_usb_1;
-				
-				joystick_analog_l0 = {axis_ll_a_ly, axis_ll_a_lx};
-				joystick_analog_r0 = {axis_ll_a_ry, axis_ll_a_rx};
-				
-				joystick_analog_l1 = {axis_ll_b_ly, axis_ll_b_lx};
-				joystick_analog_r1 = {axis_ll_b_ry, axis_ll_b_rx};	
-				
-				joystick_analog_l2 = joystick_usb_analog_l0;
-				joystick_analog_r2 = joystick_usb_analog_r0;
-				
-				joystick_analog_l3 = joystick_usb_analog_l1;
-				joystick_analog_r3 = joystick_usb_analog_r1;
-	
-        end else if (use_llapi ^ use_llapi2) begin
-                joy = use_llapi  ? joy_ll_a : joy_usb_0;
-                joy2 = use_llapi2 ? joy_ll_b : joy_usb_0;
+        if (~use_llapi & use_llapi2) begin
+               	joy = joy_ll_b;
+                joy2 = joy_usb_0;
                 joy3 = joy_usb_1;
                 joy4 = joy_usb_2;
 				
-				joystick_analog_l0 = use_llapi ? {axis_ll_a_ly, axis_ll_a_lx} : joystick_usb_analog_l0;
-				joystick_analog_r0 = use_llapi ? {axis_ll_a_ry, axis_ll_a_rx} : joystick_usb_analog_r0;
+				joystick_analog_l0 = {axis_ll_b_ly, axis_ll_b_lx};
+				joystick_analog_r0 = {axis_ll_b_ry, axis_ll_b_rx};	
 				
-				joystick_analog_l1 = use_llapi2 ? {axis_ll_a_ly, axis_ll_a_lx} : joystick_usb_analog_l0;
-				joystick_analog_r1 = use_llapi2 ? {axis_ll_b_ry, axis_ll_b_rx} : joystick_usb_analog_r0;
+				joystick_analog_l1 = joystick_usb_analog_l0;
+				joystick_analog_r1 = joystick_usb_analog_r0;
 				
 				joystick_analog_l2 = joystick_usb_analog_l1;
 				joystick_analog_r2 = joystick_usb_analog_r1;
@@ -1172,28 +1154,43 @@ always_comb begin
 				joystick_analog_l3 = joystick_usb_analog_l2;
 				joystick_analog_r3 = joystick_usb_analog_r2;
 				
+		 end else if (OSD_STATUS) begin
+               	joy = 0;
+                joy2 = 0;
+                joy3 = 0;
+                joy4 = 0;
+				
+				joystick_analog_l0 = {8'b0,8'b0};
+				joystick_analog_r0 = {8'b0,8'b0};
+				
+				joystick_analog_l1 = {8'b0,8'b0};
+				joystick_analog_r1 = {8'b0,8'b0};	
+				
+				joystick_analog_l2 = {8'b0,8'b0};
+				joystick_analog_r2 = {8'b0,8'b0};
+				
+				joystick_analog_l3 = {8'b0,8'b0};
+				joystick_analog_r3 = {8'b0,8'b0};
+				
         end else begin
-                joy = joy_usb_0;
-                joy2 = joy_usb_1;
-                joy3 = joy_usb_2;
-                joy4 = joy_usb_3;
+                joy = joy_ll_a;
+                joy2 = joy_ll_b;
+                joy3 = joy_usb_0;
+                joy4 = joy_usb_1;
 				
-				joystick_analog_l0 = joystick_usb_analog_l0;
-				joystick_analog_r0 = joystick_usb_analog_r0;
+				joystick_analog_l0 = {axis_ll_a_ly, axis_ll_a_lx};
+				joystick_analog_r0 = {axis_ll_a_ry, axis_ll_a_rx};	
 				
-				joystick_analog_l1 = joystick_usb_analog_l1;
-				joystick_analog_r1 = joystick_usb_analog_r1;
+				joystick_analog_l1 = {axis_ll_b_ly, axis_ll_b_lx};
+				joystick_analog_r1 = {axis_ll_b_ry, axis_ll_b_rx};
 				
-				joystick_analog_l2 = joystick_usb_analog_l2;
-				joystick_analog_r2 = joystick_usb_analog_r2;
+				joystick_analog_l2 = joystick_usb_analog_l0;
+				joystick_analog_r2 = joystick_usb_analog_r0;
 				
-				joystick_analog_l3 = joystick_usb_analog_l3;
-				joystick_analog_r3 = joystick_usb_analog_r3;
-        end
+				joystick_analog_l3 = joystick_usb_analog_l1;
+				joystick_analog_r3 = joystick_usb_analog_r1;
+		end
 end
-
-//////////////////  END LLAPI   ///////////////////
-
 
 
 
