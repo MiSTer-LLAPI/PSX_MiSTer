@@ -60,6 +60,7 @@ module emu
 	input  [11:0] HDMI_HEIGHT,
 	output        HDMI_FREEZE,
 	output        HDMI_BLACKOUT,
+	output        HDMI_BOB_DEINT,
 
 `ifdef MISTER_FB
 	// Use framebuffer in DDRAM
@@ -178,6 +179,7 @@ module emu
 );
 
 assign HDMI_FREEZE = 1'b0;
+assign HDMI_BOB_DEINT = status[41];
 
 assign ADC_BUS  = 'Z;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
@@ -346,7 +348,7 @@ wire reset_or = RESET | buttons[1] | status[0] | bios_download | exe_download | 
 // 0         1         2         3          4         5         6          7         8         9
 // 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-//  XXXX XXXXXX XXXXXX XXXXX  XX XX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXXXXXXXXX
+//  XXXX XXXXXX XXXXXX XXXXX  XX XX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 `include "build_id.v"
 parameter CONF_STR = {
@@ -432,6 +434,7 @@ parameter CONF_STR = {
 	"P2O[78],Limit Max CD Speed,Off,On(U);",
 	"P2O[85],RAM(Homebrew),2 MByte,8 MByte(U);",
 	"P2O[90],GPU Slowdown,Off,On(U);",
+	"P2O[92],Old GPU,Off,On;",
 	"P2-;",
 	"P2O[28],FPS Overlay,Off,On;",
 	"P2O[74],Error Overlay,Off,On;",
@@ -1323,7 +1326,7 @@ psx
    .ditherOff(status[22]),
    .interlaced480pHack(status[89]),
    .showGunCrosshairs(status[9]),
-	 .enableNeGconRumble(status[91]),
+   .enableNeGconRumble(status[91]),
    .fpscountOn(status[28]),
    .cdslowOn(status[59]),
    .testSeek(status[70]),
@@ -1350,6 +1353,8 @@ psx
    .REVERBOFF(0),
    .REPRODUCIBLESPUDMA(status[43]),
    .WIDESCREEN(status[54:53]),
+   .oldGPU(status[92]),
+   
    // RAM/BIOS interface
    .biosregion(biosregion),
    .ram_refresh(sdr_refresh),
@@ -1784,7 +1789,7 @@ assign VGA_B    = video_gamma.blue;
 assign VGA_VS   = video_gamma.vs;
 assign VGA_HS   = video_gamma.hs;
 assign VGA_DE   = ~(video_gamma.vb | video_gamma.hb);
-assign VGA_F1 = status[14] ? 1'b0 : (video_aspect.interlace & ~status[41]);
+assign VGA_F1   =  status[14] ? 1'b0 : video_aspect.interlace;
 assign VGA_SL = 0;
 logic [11:0] aspect_x, aspect_y;
 
