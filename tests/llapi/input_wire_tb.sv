@@ -4,7 +4,7 @@ module input_wire_tb;
  reg request=0,inhibit=1;
  wire valid,accepted;wire [7:0] motor_command;
  wire latch_out,data_out,active;wire [7:0] kind,modes;wire [31:0] buttons;wire [71:0] analog_data;
- psx_llapi_rumble_tx #(.REFRESH_CYCLES(250000)) tx(.clk(clk),.connected(active && kind==11),.request_async(request),.inhibit_async(inhibit),.valid(valid),.command(motor_command),.accepted(accepted));
+ psx_llapi_rumble_tx #(.REFRESH_CYCLES(250000)) tx(.clk(clk),.refresh_tick(1'b0),.connected(active && kind==11),.request_async(request),.inhibit_async(inhibit),.valid(valid),.command(motor_command),.accepted(accepted));
  always #10 clk=~clk;
  LLAPI #(.EXTERNAL_COMMANDS(1)) dut(.CLK_50M(clk),.ENABLE(enabled),.LLAPI_SYNC(1'b0),
  .IO_LATCH_IN(latch_in),.IO_DATA_IN(data_in),.IO_LATCH_OUT(latch_out),.IO_DATA_OUT(data_out),
