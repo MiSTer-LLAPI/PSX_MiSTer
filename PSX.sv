@@ -901,13 +901,20 @@ psx_llapi_rumble_route ll_rumble_route(
     .port_a(ll_rumble_a), .port_b(ll_rumble_b));
 // Only DualShock / DualShock2 types are targeted. Do not send motor commands
 // to other controller accessories. CDC of activity/inhibit happens in tx.
-psx_llapi_rumble_tx ll_rumble_tx_a(
-    .clk(CLK_50M), .connected(use_llapi && (llapi_type==8'd11 || llapi_type==8'd12)),
+// Shared 50 ms timebase replaces duplicated 22-bit per-socket counters.
+reg [21:0] ll_rumble_clock=0;
+wire ll_rumble_tick = ll_rumble_clock==22'd2499999;
+always @(posedge CLK_50M) begin
+    if(ll_rumble_tick) ll_rumble_clock<=0;
+    else ll_rumble_clock<=ll_rumble_clock+1'b1;
+end
+psx_llapi_rumble_tx #(.SHARED_TIMEBASE(1)) ll_rumble_tx_a(
+    .clk(CLK_50M), .refresh_tick(ll_rumble_tick), .connected(use_llapi && (llapi_type==8'd11 || llapi_type==8'd12)),
     .request_async(|ll_rumble_a),
     .inhibit_async(ll_rumble_inhibit),
     .valid(ll_rumble_valid_a), .command(ll_rumble_command_a), .accepted(ll_rumble_ready_a));
-psx_llapi_rumble_tx ll_rumble_tx_b(
-    .clk(CLK_50M), .connected(use_llapi2 && (llapi_type2==8'd11 || llapi_type2==8'd12)),
+psx_llapi_rumble_tx #(.SHARED_TIMEBASE(1)) ll_rumble_tx_b(
+    .clk(CLK_50M), .refresh_tick(ll_rumble_tick), .connected(use_llapi2 && (llapi_type2==8'd11 || llapi_type2==8'd12)),
     .request_async(|ll_rumble_b),
     .inhibit_async(ll_rumble_inhibit),
     .valid(ll_rumble_valid_b), .command(ll_rumble_command_b), .accepted(ll_rumble_ready_b));
