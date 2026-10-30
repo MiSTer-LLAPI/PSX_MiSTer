@@ -8,3 +8,6 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/savestate_ui.sv
 set_global_assignment -name VERILOG_FILE rtl/hps_ext.v
 set_global_assignment -name SDC_FILE PSX.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE PSX.sv
+
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/psx_llapi_rumble_route.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/psx_llapi_rumble_tx.sv

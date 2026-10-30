@@ -205,6 +205,7 @@ parameter CONF_STR = {
 	//LLAPI Always ON
 	"-,>> LLAPI enabled core    <<;",
 	"-,>> Connect USER I/O port <<;",
+	"O[93],LLAPI rumble test,Off,On;",
 	"-;",
 	//END LLAPI	
 	"H7S1,CUECHD,Load CD;",
@@ -887,8 +888,32 @@ always_comb begin
 		USER_OUT[5] = llapi_data_o2;
 end
 
+wire use_llapi  = llapi_en && ((|llapi_type  && ~(&llapi_type))); //  || llapi_button_pressed);
+wire use_llapi2 = llapi_en2 && ((|llapi_type2 && ~(&llapi_type2))); // || llapi_button_pressed2);
+wire ll_rumble_inhibit = OSD_STATUS || paused || reset_or || !status[93];
+// Experimental finite-jolt return path. No separate motor intensity claim.
+wire [15:0] ll_rumble_a, ll_rumble_b;
+wire ll_rumble_valid_a, ll_rumble_valid_b, ll_rumble_ready_a, ll_rumble_ready_b;
+wire [7:0] ll_rumble_command_a, ll_rumble_command_b;
+psx_llapi_rumble_route ll_rumble_route(
+    .port_a_active(use_llapi), .port_b_active(use_llapi2), .inhibit(1'b0),
+    .player1(joystick1_rumble), .player2(joystick2_rumble),
+    .port_a(ll_rumble_a), .port_b(ll_rumble_b));
+// Only DualShock / DualShock2 types are targeted. Do not send motor commands
+// to other controller accessories. CDC of activity/inhibit happens in tx.
+psx_llapi_rumble_tx ll_rumble_tx_a(
+    .clk(CLK_50M), .connected(use_llapi && (llapi_type==8'd11 || llapi_type==8'd12)),
+    .request_async(|ll_rumble_a),
+    .inhibit_async(ll_rumble_inhibit),
+    .valid(ll_rumble_valid_a), .command(ll_rumble_command_a), .accepted(ll_rumble_ready_a));
+psx_llapi_rumble_tx ll_rumble_tx_b(
+    .clk(CLK_50M), .connected(use_llapi2 && (llapi_type2==8'd11 || llapi_type2==8'd12)),
+    .request_async(|ll_rumble_b),
+    .inhibit_async(ll_rumble_inhibit),
+    .valid(ll_rumble_valid_b), .command(ll_rumble_command_b), .accepted(ll_rumble_ready_b));
+
 //Port 1 conf
-LLAPI llapi
+LLAPI #(.EXTERNAL_COMMANDS(1)) llapi
 (
 	.CLK_50M(CLK_50M),
 	.LLAPI_SYNC(vblank),
@@ -900,11 +925,12 @@ LLAPI llapi
 	.LLAPI_BUTTONS(llapi_buttons),
 	.LLAPI_ANALOG(llapi_analog),
 	.LLAPI_TYPE(llapi_type),
-	.LLAPI_EN(llapi_en)
+	.LLAPI_EN(llapi_en),
+    .CMD_VALID(ll_rumble_valid_a), .CMD_BYTE(ll_rumble_command_a), .CMD_READY(ll_rumble_ready_a)
 );
 
 //Port 2 conf
-LLAPI llapi2
+LLAPI #(.EXTERNAL_COMMANDS(1)) llapi2
 (
 	.CLK_50M(CLK_50M),
 	.LLAPI_SYNC(vblank),
@@ -916,14 +942,13 @@ LLAPI llapi2
 	.LLAPI_BUTTONS(llapi_buttons2),
 	.LLAPI_ANALOG(llapi_analog2),
 	.LLAPI_TYPE(llapi_type2),
-	.LLAPI_EN(llapi_en2)
+	.LLAPI_EN(llapi_en2),
+    .CMD_VALID(ll_rumble_valid_b), .CMD_BYTE(ll_rumble_command_b), .CMD_READY(ll_rumble_ready_b)
 );
 
 // controller id is 0 if there is either an Atari controller or no controller
 // if id is 0, assume there is no controller
 // also check for 255 ('Searching mode') and treat that as 'no controller' as well
-wire use_llapi  = llapi_en && ((|llapi_type  && ~(&llapi_type))); //  || llapi_button_pressed);
-wire use_llapi2 = llapi_en2 && ((|llapi_type2 && ~(&llapi_type2))); // || llapi_button_pressed2);
 
 //Controller string provided by core for reference (order is important)
 //Controller specific mapping based on type. More info here : https://docs.google.com/document/d/12XpxrmKYx_jgfEPyw-O2zex1kTQZZ-NSBdLO2RQPRzM/edit
