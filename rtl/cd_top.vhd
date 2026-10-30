@@ -21,7 +21,7 @@ entity cd_top is
       testSeek             : in  std_logic;
       pauseOnCDSlow        : in  std_logic;
       region               : in  std_logic_vector(1 downto 0);
-      region_out           : out std_logic_vector(1 downto 0);
+      region_out           : out std_logic_vector(1 downto 0);	  
       
       pauseCD              : out std_logic := '0';
       Pause_idle_cd        : out std_logic := '0';
@@ -233,7 +233,7 @@ architecture arch of cd_top is
    signal seekLBA                   : integer range 0 to 524287; 
    signal playLBA                   : integer range 0 to 524287; 
    signal diffLBA                   : integer range 0 to 524287; 
-   signal seekTimeMul               : integer range 0 to 127; 
+   signal seekTimeMul               : integer range 0 to 137; 
    signal currentTrackBCD           : std_logic_vector(7 downto 0);
    signal nextTrack                 : std_logic_vector(7 downto 0);
    
@@ -264,6 +264,7 @@ architecture arch of cd_top is
    signal clearSectorBuffers        : std_logic := '0';  
    signal writeSectorPointer        : unsigned(2 downto 0) := (others => '0');
    signal readSectorPointer         : unsigned(2 downto 0) := (others => '0');
+   signal firstSectorPending        : std_logic := '0';
    
    type tphysicalUpdateState is
    (
@@ -280,6 +281,8 @@ architecture arch of cd_top is
    signal phy_base                 : integer range 0 to 524287;
    signal phy_oldOffset            : integer range 0 to 31;
    signal phy_newOffset            : integer range 0 to 31;
+   signal phy_spt                  : integer range 8 to 22 := 8;
+   signal pause_rotation_ticks     : integer range 0 to 16777215 := 0; -- one disc rotation in ticks
    
    -- sector fetch
    type tsectorFetch is
@@ -467,6 +470,29 @@ architecture arch of cd_top is
    
    signal ss_timeout             : unsigned(23 downto 0);
 
+   -- PSX mech sectors-per-track table (based on DuckStation / rama measurements)
+   function getSectorsPerTrack(lba : integer) return integer is
+      variable mm : integer;
+   begin
+      mm := lba / FRAMES_PER_MINUTE;
+      if (mm = 0) then return 8;
+      elsif (mm <= 4) then return 9;
+      elsif (mm <= 7) then return 10;
+      elsif (mm <= 11) then return 11;
+      elsif (mm <= 16) then return 12;
+      elsif (mm <= 23) then return 13;
+      elsif (mm <= 27) then return 14;
+      elsif (mm <= 32) then return 15;
+      elsif (mm <= 39) then return 16;
+      elsif (mm <= 44) then return 17;
+      elsif (mm <= 52) then return 18;
+      elsif (mm <= 60) then return 19;
+      elsif (mm <= 67) then return 20;
+      elsif (mm <= 74) then return 21;
+      else return 22;
+      end if;
+   end function;
+
    -- debug
    -- synthesis translate_off
    type tsectorBuffer is array(0 to 587) of std_logic_vector(31 downto 0);
@@ -588,8 +614,12 @@ begin
                            
                            when x"3" =>
                               if (bus_dataWrite(7) = '1') then
-                                 if (FifoData_Empty = '1') then -- don't do anything when data still inside?
-                                    copyData <= '1';
+                                 if (FifoData_Empty = '1') then
+                           
+                                    if (firstSectorPending = '0') then
+                                       copyData <= '1';
+                                    end if;
+                           
                                  end if;
                               else
                                  FifoData_reset <= '1';
@@ -714,19 +744,15 @@ begin
                end if;
             end if;
             
-            if (ackRead = '1' or ackRead_data = '1') then
-               if (CDROM_IRQFLAG = "00001") then -- irq for sector still pending, sector missed
-                  -- will be handled when next sector is fetched from cpu interface
-               elsif (CDROM_IRQFLAG /= "00000") then -- store sector done if current irq is something else, so CPU will be notified later
+            -- INT1 (Data Ready)
+            -- INT1 is always queued via pendingDriveIRQ to preserve hardware-like delay
+            -- and avoid INT1/INT3 race conditions (Burger Burger, Jikkyō '95),
+            -- while still guaranteeing delivery (Crime Crackers, Parodius).            
+            if (ackRead = '1' or ackRead_data = '1') then            
+               if (pendingDriveIRQ /= "00001") then
                   pendingDriveIRQ      <= "00001";
                   pendingDriveResponse <= internalStatus;
-               else
-                  CDROM_IRQFLAG <= "00001";
-                  if (CDROM_IRQENA(0) = '1') then
-                     irqOut <= '1';
-                  end if;
-                  ackRead_valid <= '1';
-               end if;
+               end if;            
             end if;
             
             if (ackPendingIRQNext = '1') then
@@ -816,8 +842,10 @@ begin
    
    -- command processing
    process(clk1x)
-      variable paramCountNew   : integer range 0 to 6;
-      variable applyNewcommand : std_logic;
+      variable paramCountNew    : integer range 0 to 6;
+      variable applyNewcommand  : std_logic;
+      variable pause_elapsed_v  : integer range 0 to 134217727;
+      variable pause_target_v   : integer range 0 to 134217727;
    begin
       if (rising_edge(clk1x)) then
          
@@ -1090,36 +1118,65 @@ begin
                         cmdStop     <= '1';
                         
                      when x"09" => -- pause
-						-- Reject PAUSE while still seeking (first sector not delivered)
-						if (driveState = DRIVE_SEEKLOGICAL or driveState = DRIVE_SEEKPHYSICAL or ((driveState = DRIVE_READING or driveState = DRIVE_PLAYING) and internalStatus(6) = '1')) then	  
-                           -- Return NOT_READY (0x80)
-						   cmdPending              <= '0';
-						   errorResponseCmd_new    <= '1';	
-						   errorResponseCmd_error  <= x"01"; -- STAT_ERROR
+                        -- Reject pause while seeking (SeekL/SeekP) or while reading/playing before the first sector has been processed (verified on real hardware).
+                        if (driveState = DRIVE_SEEKLOGICAL or driveState = DRIVE_SEEKPHYSICAL or
+                            ((driveState = DRIVE_READING or driveState = DRIVE_PLAYING) and internalStatus(6) = '1')) then
+                           cmdPending              <= '0';
+                           errorResponseCmd_new    <= '1';
+                           errorResponseCmd_error  <= x"01"; -- STAT_ERROR
                            errorResponseCmd_reason <= x"80"; -- NOT_READY
+                           if (readAfterSeek = '1') then
+                              stop_afterseek <= '1';
+                           end if;
                         else
-						   cmdAck      <= '1';
+                           cmdAck      <= '1';
                            cmdPending  <= '0';
                            working     <= '1';
                            workDelay   <= 7000 - 2;
                            workCommand <= nextCmd;
                            cmdResetXa  <= '1';
+
+                           -- Pause waits one disc rotation back to the hold position
                            if (driveState = DRIVE_READING or driveState = DRIVE_PLAYING) then
-                              -- todo: should this be swapped between single speed and double speed? DuckStation has double speed longer and psx spx doc has single speed being longer
-                              if (modeReg(7) = '1') then
-                                 workDelay  <= 2157295 + driveDelay; -- value from psx spx doc
+                              -- ticks already elapsed in the current sector
+                              if (driveDelayNext > driveDelay) then
+                                 pause_elapsed_v := driveDelayNext - driveDelay;
                               else
-                                 workDelay  <= 1066874 + driveDelay; -- value from psx spx doc
+                                 pause_elapsed_v := 0;
+                              end if;
+
+                              -- data mode: 2 sectors less, holding is based on subq
+                              if (driveState = DRIVE_READING) then
+                                 pause_target_v := pause_rotation_ticks - (2 * driveREADSPEED);
+                              else
+                                 pause_target_v := pause_rotation_ticks;
+                              end if;
+
+                              if (pause_target_v > pause_elapsed_v) then
+                                 pause_target_v := pause_target_v - pause_elapsed_v;
+                              else
+                                 pause_target_v := 0;
+                              end if;
+
+                              -- minimum Pause time, values from psx spx doc.
+                              if (modeReg(7) = '1') then
+                                 if (pause_target_v < 1066874) then
+                                    workDelay <= 1066874;
+                                 else
+                                    workDelay <= pause_target_v;
+                                 end if;
+                              else
+                                 if (pause_target_v < 2157295) then
+                                    workDelay <= 2157295;
+                                 else
+                                    workDelay <= pause_target_v;
+                                 end if;
                               end if;
                            end if;
-                           if (driveState = DRIVE_SEEKLOGICAL or driveState = DRIVE_SEEKPHYSICAL or driveState = DRIVE_SEEKIMPLICIT) then
-                              -- todo: complete seek?
-                              stop_afterseek <= '1';
-                           else
-                              drive_stop <= '1';
-                           end if;
-					    end if;
-                     
+
+                           drive_stop <= '1';
+                        end if;
+
                      when x"0A" => -- reset
                         if (working = '1' and workCommand = x"0A") then
                            cmdPending <= '0';
@@ -1132,7 +1189,9 @@ begin
                            cmdAck      <= '1';
                            softReset   <= '1';
                            working     <= '1';
-                           workDelay   <= workDelay + 399999; -- cannot ignore old workdelay, otherwise reset after pause is too fast(e.g. GTA PAL)
+						   -- cannot ignore old workdelay, otherwise reset after pause is too fast(e.g. GTA PAL)
+						   -- increased 399999->3999999 (~12ms->~118ms, = DuckStation INIT_TICKS) to fix Virtual Pool 3 and the logo intro in Disruptor
+                           workDelay   <= workDelay + 3999999;
                            workCommand <= nextCmd;
                            -- call here second time, so response has new values after reset?
                            cmd_delay   <= 24999 - 2;
@@ -1702,13 +1761,17 @@ begin
          end case;
       end if;
    end process;
-   
+
    -- drive
    process(clk1x)
       variable skipreading     : std_logic;
       variable physicalLBANew  : integer range 0 to 524287;
+      variable phy_spt_v       : integer range 8 to 22;															
    begin
       if (rising_edge(clk1x)) then
+
+         -- registered, keeps the SPT table and the multiply off the command path
+         pause_rotation_ticks <= getSectorsPerTrack(currentLBA) * driveREADSPEED;
 
          if (SS_reset = '1') then
             startMotorReset        <= '1'; 
@@ -2049,10 +2112,18 @@ begin
                   seekTimeMul <= 5 + diffLBA / 8; -- 5 .. 14
                elsif (diffLBA < 4500) then
                   seekTimeMul <= 14 + diffLBA / 256; -- 14 .. 31
+            
+               elsif (diffLBA < 250000) then
+                  seekTimeMul <= 31 + diffLBA / 8192; -- 31 .. 73            
                else
-                  seekTimeMul <= 31 + diffLBA / 8192; -- 31 .. 73
+                  -- extreme sled seek only when starting from inner position after Stop
+                  if (currentLBA = 0) then
+                     seekTimeMul <= 137;
+                  else
+                     seekTimeMul <= 31 + diffLBA / 8192;
+                  end if;
                end if;
-                  
+			   
             end if;
             
             if (addSeekTime = '1') then
@@ -2183,9 +2254,21 @@ begin
                driveBusy                  <= '0';
                internalStatus(7 downto 5) <= "000"; -- ClearActiveBits
                internalStatus(1)          <= '0';   --motor off
+			   currentLBA                 <= 0;
             end if;
             
             if (drive_stop = '1') then
+               -- Pause on data: logical LBA stays, subq position drops back one track
+               if (driveState = DRIVE_READING and isAudio = '0') then
+                  -- phy_spt is owned by the physical position FSM, not set here
+                  phy_spt_v := getSectorsPerTrack(currentLBA);
+                  if (currentLBA >= phy_spt_v) then
+                     physicalLBA <= currentLBA - phy_spt_v;
+                  else
+                     physicalLBA <= 0;
+                  end if;
+               end if;
+
                driveState <= DRIVE_IDLE;
                driveBusy  <= '0';
                internalStatus(7 downto 5) <= "000"; -- ClearActiveBits
@@ -2242,15 +2325,18 @@ begin
                      physicalUpdateState <= PHYSICALUPDATE_START;
                   end if;
             
-               when PHYSICALUPDATE_START =>
-                  physicalUpdateState <= PHYSICALUPDATE_CHECK;
-                  -- todo: if (!lastSectorHeaderValid) -> different base position and different sectors per track?
-                  -- todo: fixed 32 sectorPerTrack, should be 7.0f + 2.811844405f * std::log((float)(currentLBA / 4500) + 1);
-                  if (currentlba < 32) then
-                     phy_base <= currentlba;
-                  else
-                     phy_base <= currentlba - 31;
-                  end if;
+            when PHYSICALUPDATE_START =>
+               physicalUpdateState <= PHYSICALUPDATE_CHECK;
+
+               -- rama PSX mech SPT table
+               phy_spt_v := getSectorsPerTrack(currentLBA);
+               phy_spt   <= phy_spt_v;
+
+               if (currentLBA < phy_spt_v) then
+                  phy_base <= currentLBA;
+               else
+                  phy_base <= currentLBA - (phy_spt_v - 1);
+               end if;
                   
                when PHYSICALUPDATE_CHECK =>
                   physicalUpdateState <= PHYSICALUPDATE_CALC1;
@@ -2264,7 +2350,7 @@ begin
                   
                when PHYSICALUPDATE_CALC2 =>  
                   physicalUpdateState <= PHYSICALUPDATE_CALCDONE;
-                  phy_newOffset <= (phy_oldOffset + 1) mod 32;
+                  phy_newOffset <= (phy_oldOffset + 1) mod phy_spt;
             
                when PHYSICALUPDATE_CALCDONE =>
                   physicalLBANew := phy_base + phy_newOffset;
@@ -2745,6 +2831,7 @@ begin
                      --error <= '1';
                   end if;
                   sectorBufferSizes(to_integer(writeSectorPointer)) <= procSize;
+				  firstSectorPending <= '0';
                
                when SPROC_DATA =>
                   procCount    <= procCount + 1;
@@ -2809,8 +2896,8 @@ begin
                   CDDA_data  <= sectorBuffer_DataB;
                   
             end case;
-            
 
+															
             case (copyState) is
             
                when COPY_IDLE =>
@@ -2863,13 +2950,17 @@ begin
             end case;
             
             -- if data fifo is reset while copy is still ongoing, stop copy immidiatly so fifo stays empty
-            if (FifoData_reset = '1' and copyState /= COPY_IDLE) then
-               copyState   <= COPY_IDLE;
-               FifoData_Wr <= '0';
+            if (FifoData_reset = '1') then            
+               firstSectorPending <= '0';            
+               if (copyState /= COPY_IDLE) then
+                  copyState   <= COPY_IDLE;
+                  FifoData_Wr <= '0';
+               end if;            
             end if;
             
             if (clearSectorBuffers = '1') then
                sectorBufferSizes <= (others => 0);
+			   firstSectorPending <= '1';
             end if;
 
          end if;

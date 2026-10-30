@@ -15,10 +15,11 @@ SDRAM of any size is required.
 * Texture Filtering
 * 24 Bit rendering
 * Widescreen modes
-* Screen roation by 180°
+* Screen rotation by 180°
 * 8 Mbyte mode(from dev units, mostly for homebrew) 
 * Inputs: DualShock, Digital, Analog, Mouse, NeGcon, Wheel, Justifier and Guncon support.
-* Native Input support through LLAPI
+* Native controller input through LLAPI (this experimental fork)
+* Old GPU (CXD8514Q)
 
 ## Bios
 Rename your playstation bios file (e.g. `scph-1001.bin`/`ps-22a.bin` ) and place it in the `./games/PSX/` folder.
@@ -45,9 +46,15 @@ One card can be mounted for each controller slot. Cards are in raw .mcd format. 
 
 You need to save them either manually in the OSD or turn on autosave. Saving or loading a card will pause the core for a short time.
 
+## CUE+BIN and CHD files
+
+For proper operation, CUE/BIN and CHD game files should be placed in separate folders, with one folder per game. This allows the core to automatically create a dedicated virtual memory card for each game, preventing save data from being shared between different titles.
+
+Additionally, when a new game is selected, the core automatically resets itself, ensuring the game starts correctly without requiring a manual restart.
+
 ## Multiple Disc Games
 
-To swap discs while the game is running, you will need have all of the disc files for the game placed in the same folder. Then when loading a new disc for most games you will need to toggle the Lid Open/Close option to tell the game you have opened the lid and closed it. Example folder structure of a multi disc game:
+To swap discs while the game is running, all disc files for the game must be placed in the same folder. When a disc change is required, the core will automatically simulate opening and closing the disc lid. Example folder structure of a multi-disc game:
 
 ```
 /media/fat/games/PSX/Final Fantasy VII (USA)/Final Fantasy VII (USA) (Disc 1).chd
@@ -219,3 +226,7 @@ MDEC   : 90%
 CD     : 90%
 - accurate CD access model for correct seek times should be added
 - drive and controller logic should be seperated
+
+## Experimental LLAPI integration status
+
+This development branch merges official PSX_MiSTer commit `cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3` with the existing LLAPI fork history. Original authorship and licenses are retained. Digital/analog input code is retained, but this merged revision is not yet FPGA-built or hardware validated. Rumble is under development, not a working release feature. The USER port in this fork is owned by LLAPI; upstream SNAC functionality is not claimed to operate simultaneously. No BIOS or game data is included.
