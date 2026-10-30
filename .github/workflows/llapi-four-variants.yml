@@ -1,0 +1,93 @@
+name: PSX four-variant LLAPI build
+on:
+  workflow_dispatch:
+  push:
+    branches: [llapi-20261030-build]
+permissions:
+  contents: read
+concurrency:
+  group: psx-llapi-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Import exact reviewed commits while preserving authorship
+        run: |
+          set -euo pipefail
+          echo '8f9c1c3ba4da98d8f729f9b2f2de1d109069a46ff2125ef5b35cf0bda7bef8cb  psx-integration.bundle' | sha256sum -c -
+          git fetch https://github.com/MiSTer-devel/PSX_MiSTer.git cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3 cbefef4b18d598d19e445a6123eb2beddb839370
+          git bundle verify psx-integration.bundle
+          git fetch psx-integration.bundle refs/heads/llapi-20261030-rumble-test:refs/heads/llapi-20261030-rumble-test refs/heads/llapi-20261030-2xcpu-test:refs/heads/llapi-20261030-2xcpu-test
+          test "$(git rev-parse llapi-20261030-rumble-test)" = 938d69bde756d4cda05e019d355741fa0ad4124b
+          test "$(git rev-parse llapi-20261030-2xcpu-test)" = 358381a68fedb0d9a81e40ecd2cd426368883594
+          git merge-base --is-ancestor b41bbdf36657624d62d06fd72da160aaf98654ef llapi-20261030-rumble-test
+          git merge-base --is-ancestor cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3 llapi-20261030-rumble-test
+          git merge-base --is-ancestor cbefef4b18d598d19e445a6123eb2beddb839370 llapi-20261030-2xcpu-test
+          git push origin llapi-20261030-rumble-test llapi-20261030-2xcpu-test
+  controllers:
+    needs: source
+    strategy:
+      matrix:
+        sha: [938d69bde756d4cda05e019d355741fa0ad4124b, 358381a68fedb0d9a81e40ecd2cd426368883594]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.sha }}
+      - run: sudo apt-get update && sudo apt-get install -y iverilog
+      - run: bash tests/llapi/run.sh
+  build:
+    needs: [source, controllers]
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [PSX, PSX_DualSDRAM]
+        sha: [938d69bde756d4cda05e019d355741fa0ad4124b, 358381a68fedb0d9a81e40ecd2cd426368883594]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.sha }}
+      - name: Compile exact source and enforce timing
+        env:
+          PROJECT: ${{ matrix.project }}
+          SOURCE_SHA: ${{ matrix.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports package
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build ghcr.io/raetro/quartus:17.0 bash -c 'set -euo pipefail; quartus_sh --flow compile "$1"; python3 tests/llapi/timing.py "$1"' bash "$PROJECT" > reports/build.log 2>&1 || { tail -100 reports/build.log; exit 1; }
+          cpu=normal
+          if [ "$SOURCE_SHA" = 358381a68fedb0d9a81e40ecd2cd426368883594 ]; then cpu=2xcpu; fi
+          ram=single
+          if [ "$PROJECT" = PSX_DualSDRAM ]; then ram=dual; fi
+          name="PSX_LLAPI_${cpu}_${ram}_20261030_experimental"
+          cp "output_files/$PROJECT.rbf" "package/$name.rbf"
+          cp output_files/timing-acceptance.json "package/$name-timing.json"
+          printf 'Compiled source: %s\nCPU: %s\nSDRAM: %s\nOfficial main: cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3\n2xCPU author branch: cbefef4b18d598d19e445a6123eb2beddb839370\n' "$SOURCE_SHA" "$cpu" "$ram" > "package/$name-SOURCE.txt"
+          cp LLAPI-RUMBLE-EXPERIMENTAL.md package/
+          cp COPYING package/LICENSE 2>/dev/null || cp LICENSE package/LICENSE
+          (cd package && sha256sum *.rbf > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: psx-${{ matrix.sha }}-${{ matrix.project }}
+          path: package/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports-${{ matrix.sha }}-${{ matrix.project }}
+          path: |
+            reports/
+            output_files/*.rpt
+  # Publish only after inspecting each successful variant and its reports.
+  # Hardware validation remains pending; no automatic Update All installation.
