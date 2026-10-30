@@ -92,20 +92,24 @@
 // 6: autopause dis.
 // 7: d-pad only mode
 
-module LLAPI
+module LLAPI #(parameter EXTERNAL_COMMANDS=0)
 (
 	input         CLK_50M,
 	input         ENABLE,        // If 0, module will be disabled and pins will be set to Z
 	input         IO_LATCH_IN,   // D+ top level IO pin
-	output        IO_LATCH_OUT,
+	output logic  IO_LATCH_OUT,
 	input         IO_DATA_IN,    // D- top level IO pin
-	output        IO_DATA_OUT,
+	output logic  IO_DATA_OUT,
 	input         LLAPI_SYNC,     // Pos edge corresponds with when the core needs the data, from core
 	output        LLAPI_EN,       // High when device is communicating, passed to core
 	output [7:0]  LLAPI_TYPE,     // Enumerated controller type, passed to core
 	output [7:0]  LLAPI_MODES,    // Modes that the bliss box may be in, passed to core
 	output [31:0] LLAPI_BUTTONS,  // Vector of buttons, 1 == pressed, passed to core
-	output [71:0] LLAPI_ANALOG    // Unsigned 8 bit vector of analog axis, passed to core
+	output [71:0] LLAPI_ANALOG,   // Unsigned 8 bit vector of analog axis, passed to core
+    // Experimental byte transport. Caller owns complete command/parameter sequence.
+    input CMD_VALID,
+    input [7:0] CMD_BYTE,
+    output reg CMD_READY=0
 );
 
 // Commands
@@ -122,7 +126,7 @@ enum bit [7:0] {
 	LLAPI_RUMBLE_SINE_END               = 8'h18,
 	LLAPI_RUMBLE_CONST_JOLT             = 8'h1A,
 	LLAPI_RUMBLE_SINE_JOLT              = 8'h1B,
-	LLAPI_RUMBLE_PARMS                  = 8'h1C //followed by 2 bytes of data containing the parms (rumbleLevel and then rumbleLoop)
+	LLAPI_RUMBLE_PARMS                  = 8'h1C //followed by 2 bytes of data containing duration/loop followed by level (vendor parser order)
 } commands;
 
 // Errors
@@ -144,7 +148,8 @@ enum bit [20:0] {
 	TIME_BUFFER = 21'd9500    // 3 scanlines of wiggle room
 } time_periods;
 
-typedef enum bit [2:0] {
+typedef enum bit [3:0] {
+    WRITE_EXTERNAL,
 	READ_IDLE,
 	READ_POLL,
 	WRITE_STATUS,
@@ -197,15 +202,16 @@ assign LLAPI_EN = enable;
 
 always_comb begin
 	if (latch) begin
-		IO_LATCH_OUT <= 1'b0;
-		IO_DATA_OUT <= data_out;
+		IO_LATCH_OUT = 1'b0;
+		IO_DATA_OUT = data_out;
 	end else begin
-		IO_LATCH_OUT <= 1'b1;
-		IO_DATA_OUT <= 1'b1;
+		IO_LATCH_OUT = 1'b1;
+		IO_DATA_OUT = 1'b1;
 	end
 end
 
 always_ff @(posedge CLK_50M) begin
+    CMD_READY <= 0;
 	if (ENABLE) begin
 	old_sync <= new_sync;
 	new_sync <= LLAPI_SYNC;
@@ -253,7 +259,14 @@ always_ff @(posedge CLK_50M) begin
 					state <= STATE_WRITE_START;
 					write_buffer <= {24'd0, LLAPI_GET_MODES};
 				end
-			end else if (sync_counter >= (((poll_offset < (poll_time - TIME_BUFFER)) && enable) ?
+            end else if (EXTERNAL_COMMANDS && CMD_VALID && stage==READ_IDLE && enable && cycle>TIME_WAIT) begin
+                cycle <= 0;
+                state <= STATE_WRITE_START;
+                stage <= WRITE_EXTERNAL;
+                read_length <= 0;
+                write_buffer <= {24'd0,CMD_BYTE};
+                CMD_READY <= 1;
+            end else if (sync_counter >= (((poll_offset < (poll_time - TIME_BUFFER)) && enable) ?
 				(poll_time - poll_offset) : poll_time)) begin // Trigger timed device poll. Offset can not be > half the poll time.
 				count <= count + 1'b1;
 				if (count > TIME_WAIT) begin
@@ -312,12 +325,13 @@ always_ff @(posedge CLK_50M) begin
 			else if (cycle == (TIME_SYNC_H + TIME_SYNC_L)) begin
 				latch <= 1'b0; // Release
 			end else if (cycle >= (TIME_SYNC_H + TIME_SYNC_L + TIME_SETTLE)) begin
-				state <= STATE_IDLE;
-				cycle <= 0;
-			end
-		end
+                state <= STATE_IDLE;
+                if(stage==WRITE_EXTERNAL) stage<=READ_IDLE;
+                cycle <= 0;
+            end
+        end
 
-		STATE_READ_START: begin
+        STATE_READ_START: begin
 			if (cycle >= TIME_SETTLE && ~is_latched) begin // Just a busy wait/poll/blip
 				cycle <= 0;
 				if (stage == READ_POLL) // If expecting a busy reply from poll, advance
@@ -337,7 +351,7 @@ always_ff @(posedge CLK_50M) begin
 				((cycle > 'd25) && ~old_data && data_in)) begin // Re align during wait if needed
 				cycle <= 0;
 				read_bit <= 3'h0;
-				state <= (read_byte >= read_length) ? STATE_READ_END : STATE_READ;
+				if(read_byte >= read_length) state<=STATE_READ_END; else state<=STATE_READ;
 			end
 		end
 
@@ -365,7 +379,7 @@ always_ff @(posedge CLK_50M) begin
 								(read_buffer[12][2:0] == 3'h0 || read_buffer[12][2:0] == 3'h1 || read_buffer[12][2:0] == 3'h7), //U
 								(read_buffer[12][2:0] == 3'h4 || read_buffer[12][2:0] == 3'h3 || read_buffer[12][2:0] == 3'h5), //D
 								(read_buffer[12][2:0] == 3'h6 || read_buffer[12][2:0] == 3'h5 || read_buffer[12][2:0] == 3'h7), //L
-								(read_buffer[12][2:0] == 3'h2 || read_buffer[12][2:0] == 3'h1 || read_buffer[12][2:0] == 3'h3), //R
+								(read_buffer[12][2:0] == 3'h2 || read_buffer[12][2:0] == 3'h1 || read_buffer[12][2:0] == 3'h3) //R
 							}),
 							read_buffer[3],
 							read_buffer[2],
