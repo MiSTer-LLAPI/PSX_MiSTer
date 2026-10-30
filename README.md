@@ -1,3 +1,9 @@
+Special version of the MiSTer PSX core with CPU running at 2x clock speed(67 MHz)
+
+Experimental build only. Don't report bugs.
+
+---------------------
+
 # [Playstation](https://en.wikipedia.org/wiki/PlayStation_(console)) for [MiSTer Platform](https://github.com/MiSTer-devel/Main_MiSTer/wiki)
 
 ## Hardware Requirements
@@ -230,3 +236,7 @@ CD     : 90%
 ## Experimental LLAPI integration status
 
 This development branch merges official PSX_MiSTer commit `cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3` with the existing LLAPI fork history. Original authorship and licenses are retained. Digital/analog input code is retained, but this merged revision is not yet FPGA-built or hardware validated. Rumble is under development, not a working release feature. The USER port in this fork is owned by LLAPI; upstream SNAC functionality is not claimed to operate simultaneously. No BIOS or game data is included.
+
+## LLAPI 2xCPU development variant
+
+This separate experimental variant integrates the original project 2xCPU branch `cbefef4b18d598d19e445a6123eb2beddb839370` with the latest official main `cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3` and the LLAPI fork history. The newer official CD timing implementation is retained. This source merge has not passed Quartus compilation/timing or physical tests. It is not a normal-speed selector, a 2x-resolution mode, or a guaranteed framerate doubling. The normal-speed LLAPI development variant remains separate. Do not label inherited official RBFs as builds of this integration. Rumble remains under development.
