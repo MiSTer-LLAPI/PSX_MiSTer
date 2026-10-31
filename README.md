@@ -1,5 +1,16 @@
 # [Playstation](https://en.wikipedia.org/wiki/PlayStation_(console)) for [MiSTer Platform](https://github.com/MiSTer-devel/Main_MiSTer/wiki)
 
+## Experimental LLAPI rumble build — 31 October 2026
+
+[Download: normal CPU / Dual SDRAM](https://github.com/MiSTer-LLAPI/PSX_MiSTer/releases/tag/v2026.10.31-llapi-rumble-normal-dual-experimental).
+
+This experimental binary requires **Dual SDRAM hardware** and incorporates official upstream `cd17b5a` with LLAPI digital/analogue controls and an optional **LLAPI rumble test**, disabled by default. It combines motor activity into finite jolts for initial BlisSTer/Bliss-Box DualShock testing; independent motor intensity is not implemented. Opening the OSD disables the LLAPI link, so effect expiry depends on adapter firmware.
+
+Controller simulations, Quartus fitting and all five timing checks passed. Setup margin is only +0.007 ns; **physical gameplay and rumble validation remain pending**. The release includes exact build configuration, source archive, reports and checksums. The compiled QSF differs from base source `c16632f` only by placement SEED 2 → 3; this patch is attached.
+
+The normal Single SDRAM build has not passed fitting. Separate 2xCPU Single/Dual builds are still being evaluated and are not included in this download. Existing documentation and original credits/licences below remain applicable to their respective core versions.
+
+
 ## Hardware Requirements
 SDRAM of any size is required.
 
@@ -219,3 +230,4 @@ MDEC   : 90%
 CD     : 90%
 - accurate CD access model for correct seek times should be added
 - drive and controller logic should be seperated
+
