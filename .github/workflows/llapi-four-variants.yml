@@ -1,8 +1,6 @@
 name: PSX Single SDRAM authorized diagnostic artifact
 on:
   workflow_dispatch:
-  push:
-    branches: [llapi-20261030-build]
 permissions:
   contents: read
 concurrency:
