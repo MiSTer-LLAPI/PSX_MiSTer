@@ -1,4 +1,4 @@
-name: PSX official Single SDRAM comparison
+name: PSX Single SDRAM authorized diagnostic artifact
 on:
   workflow_dispatch:
   push:
@@ -6,40 +6,57 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: psx-official-single-comparison
+  group: psx-single-diagnostic-artifact
   cancel-in-progress: false
 jobs:
-  official-single:
+  controllers:
+    strategy:
+      matrix:
+        sha: [c16632f952811a60b66c6cbf1b54a23bd14bd112]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.sha }}
+      - run: sudo apt-get update && sudo apt-get install -y iverilog
+      - run: bash tests/llapi/run.sh
+  build:
+    needs: controllers
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [PSX]
+        sha: [c16632f952811a60b66c6cbf1b54a23bd14bd112]
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          repository: MiSTer-devel/PSX_MiSTer
-          ref: cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3
           persist-credentials: false
-      - name: Record official baseline and matching fitter configuration
+          ref: ${{ matrix.sha }}
+      - name: Prepare seed3 plus HIGH register packing and timing diagnostics
+        env:
+          SOURCE_SHA: ${{ matrix.sha }}
+          PROJECT: ${{ matrix.project }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3
           mkdir -p reports
-          python3 - <<'PYCODE'
-          from pathlib import Path
-          p=Path('PSX.qsf');s=p.read_bytes()
-          for old,new in [(b'set_global_assignment -name SEED 1',b'set_global_assignment -name SEED 3'),(b'set_global_assignment -name ALM_REGISTER_PACKING_EFFORT LOW',b'set_global_assignment -name ALM_REGISTER_PACKING_EFFORT HIGH')]:
-              assert s.count(old)==1
-              s=s.replace(old,new,1)
-          p.write_bytes(s)
-          PYCODE
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          sed -i -E 's/(set_global_assignment -name SEED) 2/\1 3/' "$PROJECT.qsf"
+          sed -i -E 's/(set_global_assignment -name ALM_REGISTER_PACKING_EFFORT) LOW/\1 HIGH/' "$PROJECT.qsf"
+          grep -E '^set_global_assignment -name (SEED 3|ALM_REGISTER_PACKING_EFFORT HIGH)' "$PROJECT.qsf" > reports/fitter-settings.txt
+          test "$(wc -l < reports/fitter-settings.txt)" -eq 2
           git diff --binary > reports/compiled-settings.patch
-          sha256sum PSX.qsf reports/compiled-settings.patch PSX.sdc files.qip > reports/compiled-settings.sha256
-          cp PSX.qsf PSX.sdc reports/
-          printf '%s\n' 'Official source cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3, Single SDRAM.' 'ONLY QSF SEED1->3 and ALM_REGISTER_PACKING_EFFORT LOW->HIGH applied.' 'Compare existing LLAPI c16632f952811a60b66c6cbf1b54a23bd14bd112 + SEED2->3/PACKHIGH, run41195126632/job124519715778.' 'No official RTL/clock/SDC/features changes. Diagnostic artifacts only, no public RBF.' 'Quartus container digest matches prior LLAPI build.log.' > reports/BUILD-SOURCE.txt
-          printf '%s\n' 'ghcr.io/raetro/quartus@sha256:55442b161163dc7723e3d4917ce046fcb682478365fe9320756c9a4ae7d7d4ce' > reports/CONTAINER.txt
+          sha256sum "$PROJECT.qsf" reports/compiled-settings.patch > reports/compiled-settings.sha256
+          cp "$PROJECT.qsf" reports/
+          printf 'Base source: %s\nProject: %s\nWorkflow: %s\nSingle SDRAM targets only: attached QSF patch sets SEED 2 to 3 and ALM_REGISTER_PACKING_EFFORT LOW to HIGH. Original duplication settings retained; RTL/clocks/SDC/features unchanged.\n' "$SOURCE_SHA" "$PROJECT" "$GITHUB_SHA" > reports/BUILD-SOURCE.txt
           cat > diagnose-timing.tcl <<'TIMING'
+          # Run after compilation while Quartus timing database is still available.
           package require ::quartus::project
           package require ::quartus::sta
-          project_open PSX
+          set project [lindex $argv 0]
+          project_open $project
           create_timing_netlist
           read_sdc
           update_timing_netlist
@@ -49,32 +66,58 @@ jobs:
           delete_timing_netlist
           project_close
           TIMING
-          cat > compare-timing.py <<'PYCODE'
-          from pathlib import Path
-          import re,json
-          p=Path('output_files/PSX.sta.rpt')
-          values=[(k.strip(),float(v)) for k,v in re.findall(r'Worst-case ([A-Za-z ]+?) slack is\s+(-?\d+(?:\.\d+)?)',p.read_text(errors='replace'))]
-          required={'setup','hold','recovery','removal','minimum pulse width'}
-          if not required.issubset({k for k,v in values}):
-              raise SystemExit('Timing report is incomplete; no RBF accepted.')
-          result={'report':str(p),'worst_slack_ns':dict(values),'accepted':all(v>=0 for k,v in values)}
-          Path('output_files/timing-acceptance.json').write_text(json.dumps(result,indent=2)+'\n')
-          print(json.dumps(result,indent=2))
-          if not result['accepted']: raise SystemExit('Timing failed; no RBF accepted.')
-          PYCODE
-      - name: Compile official baseline and export full timing paths
+      - name: Compile and preserve explicit timing status for authorized diagnostics
+        env:
+          PROJECT: ${{ matrix.project }}
+          SOURCE_SHA: ${{ matrix.sha }}
         run: |
           set -euo pipefail
-          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build ghcr.io/raetro/quartus@sha256:55442b161163dc7723e3d4917ce046fcb682478365fe9320756c9a4ae7d7d4ce bash -c 'set -uo pipefail; quartus_sh --flow compile PSX; compile_status=$?; quartus_sta -t diagnose-timing.tcl > reports/diagnose-timing.log 2>&1; diagnosis_status=$?; if [ "$compile_status" -ne 0 ]; then exit "$compile_status"; fi; if [ "$diagnosis_status" -ne 0 ]; then exit "$diagnosis_status"; fi; python3 compare-timing.py' > reports/build.log 2>&1 || { tail -100 reports/build.log; exit 1; }
+          mkdir -p reports package
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build ghcr.io/raetro/quartus@sha256:55442b161163dc7723e3d4917ce046fcb682478365fe9320756c9a4ae7d7d4ce bash -c 'set -uo pipefail; quartus_sh --flow compile "$1"; compile_status=$?; quartus_sta -t diagnose-timing.tcl "$1" > reports/diagnose-timing.log 2>&1; diagnosis_status=$?; if [ "$compile_status" -ne 0 ]; then exit "$compile_status"; fi; if [ "$diagnosis_status" -ne 0 ]; then exit "$diagnosis_status"; fi; python3 tests/llapi/timing.py "$1"; timing_status=$?; if [ "$timing_status" -gt 1 ]; then exit "$timing_status"; fi; test -s "output_files/timing-acceptance.json"' bash "$PROJECT" > reports/build.log 2>&1 || { tail -100 reports/build.log; exit 1; }
+          # User explicitly authorized a timing-failed diagnostic under _Experimental.
+          # Compilation and full diagnostics must still succeed. Never forge accepted=true.
+          python3 - <<'PYCODE'
+          import json,math
+          from pathlib import Path
+          d=json.loads(Path('output_files/timing-acceptance.json').read_text())
+          required={'setup','hold','recovery','removal','minimum pulse width'}
+          assert required.issubset(d['worst_slack_ns'])
+          assert all(math.isfinite(v) for v in d['worst_slack_ns'].values())
+          assert isinstance(d['accepted'],bool)
+          assert d['accepted']==all(v>=0 for v in d['worst_slack_ns'].values())
+          Path('package/DIAGNOSTIC-STATUS.json').write_text(json.dumps({'user_authorized_diagnostic':True,'timing_accepted':d['accepted'],'hardware_tested':False,'distribution_scope':'_LLAPI/_Experimental only','source_base':'c16632f952811a60b66c6cbf1b54a23bd14bd112','settings_patch':'SEED2->3, ALM_REGISTER_PACKING_EFFORT LOW->HIGH'},indent=2)+'\n')
+          PYCODE
+          cp "output_files/$PROJECT.rbf" package/PSX_LLAPI_SingleRAM_Diagnostic_20261031.rbf
+          cp output_files/timing-acceptance.json package/TIMING.json
+          cp reports/BUILD-SOURCE.txt reports/compiled-settings.patch reports/compiled-settings.sha256 "reports/$PROJECT.qsf" package/
+          cp LLAPI-RUMBLE-EXPERIMENTAL.md package/
+          cp COPYING package/LICENSE 2>/dev/null || cp LICENSE package/LICENSE
+          cat > package/READ-ME.txt <<'NOTICE'
+          PSX Single SDRAM diagnostic, explicitly requested by maintainer 31 October2026.
+          This is NOT a timing-approved release. Read TIMING.json for this exact binary.
+          Prior equivalent build failed setup -0.523ns and hold -0.064ns.
+          Hardware behavior is unverified. Use disposable copies of memory cards and saves.
+          Default rumble OFF; combined finite jolts only, not independent motors/intensities.
+          Only _LLAPI/_Experimental distribution is authorized; preserve stable releases.
+          No BIOS/game data included. Original authors and licenses retained.
+          NOTICE
+          mkdir -p compiled-source
+          git archive HEAD | tar -x -C compiled-source
+          cp "$PROJECT.qsf" "compiled-source/$PROJECT.qsf"
+          tar -czf package/SOURCE-compiled.tar.gz -C compiled-source .
+          (cd package && sha256sum *.rbf SOURCE-compiled.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: single-diagnostic-${{ matrix.sha }}-${{ matrix.project }}
+          path: package/
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: official-single-seed3-packhigh-comparison
+          name: single-diagnostic-reports-${{ matrix.sha }}-${{ matrix.project }}
           path: |
             reports/
             output_files/*.rpt
             output_files/*-paths.txt
-            output_files/timing-acceptance.json
-          if-no-files-found: error
-# Diagnostic comparison only; no RBF packaging or release publication.
-
+  # User-authorized diagnostic artifacts only; no automatic release. Preserve actual timing failure status.
