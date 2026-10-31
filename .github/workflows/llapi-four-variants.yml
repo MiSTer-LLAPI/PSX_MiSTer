@@ -35,7 +35,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ matrix.sha }}
-      - name: Prepare bounded fitter experiment and timing diagnostics
+      - name: Prepare placement seed 3 experiment and timing diagnostics
         env:
           SOURCE_SHA: ${{ matrix.sha }}
           PROJECT: ${{ matrix.project }}
@@ -43,15 +43,13 @@ jobs:
           set -euo pipefail
           mkdir -p reports
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          if [ "$SOURCE_SHA" = 913d5b0ed7e61492ee8eba4fca18e86718fc8004 ]; then
-            sed -i -E 's/(PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION|ROUTER_LCELL_INSERTION_AND_LOGIC_DUPLICATION) ON/\1 OFF/' "$PROJECT.qsf"
-            grep -E '(PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION|ROUTER_LCELL_INSERTION_AND_LOGIC_DUPLICATION) OFF' "$PROJECT.qsf" > reports/fitter-settings.txt
-            test "$(wc -l < reports/fitter-settings.txt)" -eq 2
-          fi
+          sed -i -E 's/(set_global_assignment -name SEED) 2/\1 3/' "$PROJECT.qsf"
+          grep -E '^set_global_assignment -name SEED 3' "$PROJECT.qsf" > reports/fitter-settings.txt
+          test "$(wc -l < reports/fitter-settings.txt)" -eq 1
           git diff --binary > reports/compiled-settings.patch
           sha256sum "$PROJECT.qsf" reports/compiled-settings.patch > reports/compiled-settings.sha256
           cp "$PROJECT.qsf" reports/
-          printf 'Base source: %s\nProject: %s\nWorkflow: %s\nOnly 2xCPU uses the attached fitter-settings patch; normal source is unchanged.\n' "$SOURCE_SHA" "$PROJECT" "$GITHUB_SHA" > reports/BUILD-SOURCE.txt
+          printf 'Base source: %s\nProject: %s\nWorkflow: %s\nAll variants use only the attached SEED 2 to 3 patch; original duplication settings retained.\n' "$SOURCE_SHA" "$PROJECT" "$GITHUB_SHA" > reports/BUILD-SOURCE.txt
           cat > diagnose-timing.tcl <<'TIMING'
           # Run after compilation while Quartus timing database is still available.
           package require ::quartus::project
@@ -79,7 +77,7 @@ jobs:
           if [ "$SOURCE_SHA" = 913d5b0ed7e61492ee8eba4fca18e86718fc8004 ]; then cpu=2xcpu; fi
           ram=single
           if [ "$PROJECT" = PSX_DualSDRAM ]; then ram=dual; fi
-          name="PSX_LLAPI_${cpu}_${ram}_20261031_fitdiagnostic_experimental"
+          name="PSX_LLAPI_${cpu}_${ram}_20261031_seed3_experimental"
           cp "output_files/$PROJECT.rbf" "package/$name.rbf"
           cp output_files/timing-acceptance.json "package/$name-timing.json"
           printf 'Compiled source: %s\nCPU: %s\nSDRAM: %s\nOfficial main: cd17b5a0ad261005c321d9d5ba41b8dbe313a7d3\n2xCPU author branch: cbefef4b18d598d19e445a6123eb2beddb839370\n' "$SOURCE_SHA" "$cpu" "$ram" > "package/$name-SOURCE.txt"
