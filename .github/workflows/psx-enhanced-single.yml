@@ -1,4 +1,4 @@
-name: PSX Enhanced Single RAM snapshot storage assessment
+name: PSX Enhanced Single RAM saturating timer width assessment
 on:
   push:
     branches: [enhanced-single-timing]
@@ -35,17 +35,22 @@ jobs:
           echo '739415f0518da81b32086a3141a1b76b7a8e656d19582398a5ffd5ae329dc84c  reports/snapshot-storage.patch' | sha256sum -c -
           git apply --check reports/snapshot-storage.patch
           git apply reports/snapshot-storage.patch
+          echo LS0tIGEvcnRsL2xsYXBpX2VuaGFuY2VkLnN2CisrKyBiL3J0bC9sbGFwaV9lbmhhbmNlZC5zdgpAQCAtMTk4LDcgKzE5OCw5IEBACiBsb2dpYyBtb2Rlc19hdHRlbXB0ZWQsIGNvbW1hbmRfYnVzeSwgY29tbWFuZF9zbG90OwogbG9naWMgWzE6MF0gcGF5bG9hZF9yZW1haW5pbmc7CiBsb2dpYyBbNzowXSBhY3RpdmVfb3Bjb2RlOwotbG9naWMgWzIwOjBdIHRyYW5zYWN0aW9uX3RpbWVyOworbG9jYWxwYXJhbSBpbnRlZ2VyIFRSQU5TQUNUSU9OX0xJTUlUID0gVElNRV9QT0xMID4gUkVDRUlWRV9TVEFSVF9USU1FT1VUID8gVElNRV9QT0xMIDogUkVDRUlWRV9TVEFSVF9USU1FT1VUOworbG9jYWxwYXJhbSBpbnRlZ2VyIFRSQU5TQUNUSU9OX1dJRFRIID0gJGNsb2cyKFRSQU5TQUNUSU9OX0xJTUlUICsgMSk7Citsb2dpYyBbVFJBTlNBQ1RJT05fV0lEVEgtMTowXSB0cmFuc2FjdGlvbl90aW1lcjsKIGZ1bmN0aW9uIGF1dG9tYXRpYyB2YWxpZF9jb21tYW5kKGlucHV0IFs3OjBdIG9wKTsKICAgICB2YWxpZF9jb21tYW5kID0gb3AgPT0gOCdoMDIgfHwgb3AgPT0gOCdoMjEgfHwgb3AgPT0gOCdoMTEgfHwgb3AgPT0gOCdoMTIgfHwKICAgICAgICAgb3AgPT0gOCdoMTQgfHwgb3AgPT0gOCdoMTggfHwgb3AgPT0gOCdoMWEgfHwgb3AgPT0gOCdoMWIgfHwgb3AgPT0gOCdoMWMgfHwKQEAgLTI3OCw3ICsyODAsNyBAQAogCWlmIChFTkFCTEUpIGJlZ2luCiAgICAgQ01EX0RPTkUgPD0gMDsKICAgICBpZiAoc3RhZ2UgIT0gUkVBRF9JRExFIHx8IHN0YXRlICE9IFNUQVRFX0lETEUpIGJlZ2luCi0gICAgICAgIGlmICh0cmFuc2FjdGlvbl90aW1lciAhPSAyMSdoMWZmZmZmKSB0cmFuc2FjdGlvbl90aW1lciA8PSB0cmFuc2FjdGlvbl90aW1lciArIDEnYjE7CisgICAgICAgIGlmICh0cmFuc2FjdGlvbl90aW1lciAhPSB7VFJBTlNBQ1RJT05fV0lEVEh7MSdiMX19KSB0cmFuc2FjdGlvbl90aW1lciA8PSB0cmFuc2FjdGlvbl90aW1lciArIDEnYjE7CiAgICAgZW5kIGVsc2UgdHJhbnNhY3Rpb25fdGltZXIgPD0gMDsKIAlvbGRfc3luYyA8PSBuZXdfc3luYzsKIAluZXdfc3luYyA8PSBMTEFQSV9TWU5DOwo= | base64 -d > reports/timer-width.patch
+          echo '0f45ba936d8c30b5eafceccf86dc2e66f45a8fd4160b57d9c5622fc905029ebe  reports/timer-width.patch' | sha256sum -c -
+          git apply --check reports/timer-width.patch
+          git apply reports/timer-width.patch
           sed -i -E 's/(set_global_assignment -name SEED) 2/\1 3/; s/(set_global_assignment -name ALM_REGISTER_PACKING_EFFORT) LOW/\1 HIGH/' PSX.qsf
           echo 'a0aa479f1a58227838162fce2ceb6e04fafd9c4fbeefb01a5ade38df2cc5d072  PSX.qsf' | sha256sum -c -
-          echo '893158486522baebfe964ca5a80cb6c803d51db8a2c04240ca87cbb4828106ef  rtl/llapi_enhanced.sv' | sha256sum -c -
+          echo 'b3b58462294dc4c282f4ef6ee9d53c8952a7c58ab1f095daf6a86ce152ff65dd  rtl/llapi_enhanced.sv' | sha256sum -c -
           cp PSX.qsf reports/
           git diff --binary > reports/tracked-changes.patch
-          printf 'Base: c16632f952811a60b66c6cbf1b54a23bd14bd112\nWorkflow: %s\nEnhanced integration plus validated count21-to9 width reduction and direct receive-buffer snapshot decode and matched SEED3/PACKHIGH. No clock/SDC changes. Hardware untested.\n' "$GITHUB_SHA" > reports/BUILD-SOURCE.txt
+          printf 'Base: c16632f952811a60b66c6cbf1b54a23bd14bd112\nWorkflow: %s\nEnhanced integration plus validated count21-to9 width reduction and direct receive-buffer snapshot decode plus bounded saturating transaction timer and matched SEED3/PACKHIGH. No clock/SDC changes. Hardware untested.\n' "$GITHUB_SHA" > reports/BUILD-SOURCE.txt
           mkdir compiled-source
           git archive HEAD | tar -x -C compiled-source
           git apply --directory=compiled-source reports/integration.patch
           git apply --directory=compiled-source reports/count-width.patch
           git apply --directory=compiled-source reports/snapshot-storage.patch
+          git apply --directory=compiled-source reports/timer-width.patch
           cmp rtl/llapi_enhanced.sv compiled-source/rtl/llapi_enhanced.sv
           cp PSX.qsf compiled-source/
           tar -czf reports/SOURCE-compiled.tar.gz -C compiled-source .
