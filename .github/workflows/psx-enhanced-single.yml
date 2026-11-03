@@ -1,7 +1,7 @@
-name: PSX Enhanced Single RAM receive storage assessment
+name: PSX Enhanced Single RAM controller identity storage assessment
 on:
   push:
-    branches: [enhanced-single-rx-shift]
+    branches: [enhanced-single-type-storage]
     paths: [.github/workflows/psx-enhanced-single.yml]
   workflow_dispatch:
 permissions:
@@ -55,12 +55,16 @@ jobs:
           echo "9d2ea3ed19565dca80ea09d2db99cadf64300ac12c32ae5e8e5807ea69a3e893  reports/rx-shift.patch" | sha256sum -c -
           git apply --check reports/rx-shift.patch
           git apply reports/rx-shift.patch
+          echo LS0tIGEvcnRsL2xsYXBpX2VuaGFuY2VkLnN2CisrKyBiL3J0bC9sbGFwaV9lbmhhbmNlZC5zdgpAQCAtMjQzLDcgKzI0Myw4IEBACiAJCQkJCQkJcmVhZF9idWZmZXJbNV0sCiAJCQkJCQkJcmVhZF9idWZmZXJbNF0KIAkJCQkJCX07Ci1sb2dpYyBbNzowXSBwZW5kaW5nX3R5cGU7CisvLyBUaGUgZmlyc3QgcmVjZWl2ZSBieXRlIHJlbWFpbnMgc3RhYmxlIHVudGlsIHRoZSBjb21wbGV0ZSBwYWNrZXQgaXMgcHVibGlzaGVkLgord2lyZSBbNzowXSBwZW5kaW5nX3R5cGUgPSByZWFkX2J1ZmZlclswXTsKIGxvZ2ljIHBhY2tldF9jb21wbGV0ZTsKIGxvZ2ljIFszMTowXSAgbGxqc19idXR0b25zOwogbG9naWMgWzcxOjBdICBsbGpzX2FuYWxvZzsKQEAgLTQ5Myw3ICs0OTQsNyBAQAogCQkJCWlmIChyZWFkX2JpdCA9PSAzJ2gwKSBiZWdpbiAvLyBUaGlzIHJlbGllcyBvbiBvdmVyZmxvdyBiZWhhdmlvcgogCQkJCQlpZiAocmVhZF9ieXRlID09IDApIGJlZ2luCiAJCQkJCQlpZiAoc3RhZ2UgPT0gUkVBRF9TVEFUVVMpIGJlZ2luCi0JCQkJCQkJcGVuZGluZ190eXBlIDw9IHJlYWRfYnVmZmVyWzBdOworCQkJCQkJCS8vIElkZW50aXR5IGlzIGRlY29kZWQgZGlyZWN0bHkgZnJvbSByZWNlaXZlIGJ5dGUgemVyby4KIAkJCQkJCWVuZAogCQkJCQllbmQgZWxzZSBpZiAocmVhZF9ieXRlID09ICdkMTIgJiYgc3RhZ2UgPT0gUkVBRF9TVEFUVVMpIGJlZ2luCiAgICAgICAgICAgICAgICAgICAgICAgICBwYWNrZXRfY29tcGxldGUgPD0gMTsKQEAgLTU5NCw3ICs1OTUsNyBAQAogICAgICAgICBtb2Rlc19hdHRlbXB0ZWQgPD0gMDsgTU9ERVNfVkFMSUQgPD0gMDsgY29tbWFuZF9idXN5IDw9IDA7IGNvbW1hbmRfc2xvdCA8PSAwOwogICAgICAgICBwYXlsb2FkX3JlbWFpbmluZyA8PSAwOyBhY3RpdmVfb3Bjb2RlIDw9IDA7IHRyYW5zYWN0aW9uX3RpbWVyIDw9IDA7CiAgICAgICAgIENNRF9ET05FIDw9IDA7IENNRF9FUlJPUiA8PSAwOyBDTURfUkVQTFkgPD0gMDsgQ01EX1JFUExZX0xFTkdUSCA8PSAwOwotICAgICAgICBwZW5kaW5nX3R5cGUgPD0gMDsgICBwYWNrZXRfY29tcGxldGUgPD0gMDsKKyAgICAgICAgcGFja2V0X2NvbXBsZXRlIDw9IDA7CiAgICAgICAgIGN5Y2xlIDw9IDA7IGNvdW50IDw9IDA7IHBvbGxfb2Zmc2V0IDw9IDA7IHBvbGxfY291bnRlciA8PSAwOwogICAgICAgICBwb2xsX29mZnNldF9sYXRjaCA8PSAwOyBzeW5jX2NvdW50ZXIgPD0gMDsgcG9sbF90aW1lIDw9IFRJTUVfUE9MTDsKICAgICAgICAgd3JpdGVfYnVmZmVyIDw9IDA7IHdyaXRlX2xlbmd0aCA8PSAwOwo= | base64 -d > reports/type-storage.patch
+          echo "0940d1dc793fdc7c4cba9c272a4b7fc651993b709aeea90f593fb9bed1db95dc  reports/type-storage.patch" | sha256sum -c -
+          git apply --check reports/type-storage.patch
+          git apply reports/type-storage.patch
           sed -i -E 's/(set_global_assignment -name SEED) 2/\1 3/; s/(set_global_assignment -name ALM_REGISTER_PACKING_EFFORT) LOW/\1 HIGH/' PSX.qsf
           echo 'a0aa479f1a58227838162fce2ceb6e04fafd9c4fbeefb01a5ade38df2cc5d072  PSX.qsf' | sha256sum -c -
-          echo 'c9a18fe8cd7d79187f3c7bbcbc9d1a33b625304bd704e7229d0ede50f50b0ac0  rtl/llapi_enhanced.sv' | sha256sum -c -
+          echo '7d7d955123065c4e49f33f2a5269bef57cbd0c6cb465320626cf335988a25fc5  rtl/llapi_enhanced.sv' | sha256sum -c -
           cp PSX.qsf reports/
           git diff --binary > reports/tracked-changes.patch
-          printf 'Base: c16632f952811a60b66c6cbf1b54a23bd14bd112\nWorkflow: %s\nEnhanced integration plus validated count21-to9 width reduction and direct receive-buffer snapshot decode plus bounded saturating transaction timer, byte-wise RX shifting and matched SEED3/PACKHIGH. No clock/SDC changes. Hardware untested.\n' "$GITHUB_SHA" > reports/BUILD-SOURCE.txt
+          printf 'Base: c16632f952811a60b66c6cbf1b54a23bd14bd112\nWorkflow: %s\nEnhanced integration plus validated count21-to9 width reduction and direct receive-buffer snapshot decode plus bounded saturating transaction timer, byte-wise RX shifting, direct controller identity decode and matched SEED3/PACKHIGH. No clock/SDC changes. Hardware untested.\n' "$GITHUB_SHA" > reports/BUILD-SOURCE.txt
           mkdir compiled-source
           git archive HEAD | tar -x -C compiled-source
           git apply --directory=compiled-source reports/integration.patch
@@ -71,10 +75,11 @@ jobs:
           git apply --directory=compiled-source reports/menu-auto-rumble.patch
           git apply --directory=compiled-source reports/disable-unused-snac.patch
           git apply --directory=compiled-source reports/rx-shift.patch
+          git apply --directory=compiled-source reports/type-storage.patch
           cmp PSX.sv compiled-source/PSX.sv
           cmp rtl/llapi_enhanced.sv compiled-source/rtl/llapi_enhanced.sv
           cp PSX.qsf compiled-source/
-          echo ewogICJ2ZXJzaW9uIjogIjAuMi4xLWRldityeC1zaGlmdCIsCiAgInJ0bF9jb21taXQiOiAiYmY4NjZiMjAxZjNmOTZjMWEyYTUwNDhkOTAzODkxZDY1MjU4NmI0NyIsCiAgInNoYTI1NiI6ICJjOWExOGZlOGNkN2Q3OTE4N2YzYzdiYmNiYzlkMWEzM2I2MjUzMDRiZDcwNGU3MjI5ZDBlZGU1MGY1MGIwYWMwIiwKICAiaW50ZWdyYXRpb24iOiAiUFNYIGlzb2xhdGVkIGNhbmRpZGF0ZTsgZXhpc3Rpbmcgcm91dGluZyBhbmQgcnVtYmxlIHRyYW5zbWl0dGVyIHJldGFpbmVkIiwKICAicXVhcnR1cyI6ICIxNy4wLjIgTGl0ZSBCdWlsZCA2MDIgcmVmZXJlbmNlOyBuZXcgY29tcGlsZSBwZW5kaW5nIiwKICAiaGFyZHdhcmVfdmFsaWRhdGVkIjogZmFsc2UsCiAgInVwc3RyZWFtX3NoYTI1NiI6ICI2M2FjMDM4ZjdhZTE3Y2I5OTYzOTFjMjI0OWYzZmExNDQ3MjY4YjY4MTY3YzI1Yjk3ZTYzNTZiMjk5ODVkODk1IiwKICAibG9jYWxfY2hhbmdlIjogIkxTQi1maXJzdCBwZXItYnl0ZSByZWNlaXZlIHNoaWZ0aW5nOyBzYW1wbGUgdGltZXMgYW5kIHB1YmxpYyBwYWNrZXQgcHVibGljYXRpb24gdW5jaGFuZ2VkIgp9Cg== | base64 -d > compiled-source/LLAPI-VERSION.json
+          echo ewogICJ2ZXJzaW9uIjogIjAuMi4xLWRldityeC1zaGlmdC10eXBlLXN0b3JhZ2UiLAogICJydGxfY29tbWl0IjogImJmODY2YjIwMWYzZjk2YzFhMmE1MDQ4ZDkwMzg5MWQ2NTI1ODZiNDciLAogICJzaGEyNTYiOiAiN2Q3ZDk1NTEyMzA2NWM0ZTQ5ZjMzZjJhNTI2OWJlZjU3Y2JkMGM2Y2I0NjUzMjA2MjZjZjMzNTk4OGEyNWZjNSIsCiAgImludGVncmF0aW9uIjogIlBTWCBpc29sYXRlZCBjYW5kaWRhdGU7IGV4aXN0aW5nIHJvdXRpbmcgYW5kIHJ1bWJsZSB0cmFuc21pdHRlciByZXRhaW5lZCIsCiAgInF1YXJ0dXMiOiAiMTcuMC4yIExpdGUgQnVpbGQgNjAyIHJlZmVyZW5jZTsgbmV3IGNvbXBpbGUgcGVuZGluZyIsCiAgImhhcmR3YXJlX3ZhbGlkYXRlZCI6IGZhbHNlLAogICJ1cHN0cmVhbV9zaGEyNTYiOiAiNjNhYzAzOGY3YWUxN2NiOTk2MzkxYzIyNDlmM2ZhMTQ0NzI2OGI2ODE2N2MyNWI5N2U2MzU2YjI5OTg1ZDg5NSIsCiAgImxvY2FsX2NoYW5nZSI6ICJCeXRlLXdpc2UgcmVjZWl2ZSBzaGlmdGluZyBwbHVzIGRpcmVjdCBmaXJzdC1ieXRlIGlkZW50aXR5IGRlY29kZTsgcHVibGljIHNuYXBzaG90cyBwcmVzZXJ2ZWQiCn0K | base64 -d > compiled-source/LLAPI-VERSION.json
           cp compiled-source/LLAPI-VERSION.json reports/
           tar -czf reports/SOURCE-compiled.tar.gz -C compiled-source .
           cat > diagnose-timing.tcl <<'TIMING'
@@ -110,7 +115,7 @@ jobs:
           cp reports/SOURCE-compiled.tar.gz reports/BUILD-SOURCE.txt package/
           cp LLAPI-ENHANCED.md package/LEGACY-INTEGRATION-NOTES.md
           cp reports/LLAPI-VERSION.json reports/QUARTUS-VERSION.txt package/
-          printf "%s\n" "PSX Single RAM LLAPI Enhanced 0.2.1-dev+rx-shift candidate. USER I/O: LLAPI 2P, enabled outside OSD. Rumble automatically follows supported controller game requests, inhibited during pause/OSD/reset. Finite-jolt transport; no independent motor intensity or hardware validation claimed. SNAC disabled to recover FPGA space; old SNAC pad selection is Unavailable. Other pad encodings and virtual memory cards preserved. UltimateMiSTer.com (RickDangerous). Original authors and licenses retained. LEGACY-INTEGRATION-NOTES.md describes prior integration; current behavior is defined here." > package/README.md
+          printf "%s\n" "PSX Single RAM LLAPI Enhanced 0.2.1-dev+rx-shift-type-storage candidate. USER I/O: LLAPI 2P, enabled outside OSD. Rumble automatically follows supported controller game requests, inhibited during pause/OSD/reset. Finite-jolt transport; no independent motor intensity or hardware validation claimed. SNAC disabled to recover FPGA space; old SNAC pad selection is Unavailable. Other pad encodings and virtual memory cards preserved. UltimateMiSTer.com (RickDangerous). Original authors and licenses retained. LEGACY-INTEGRATION-NOTES.md describes prior integration; current behavior is defined here." > package/README.md
           cp COPYING package/LICENSE 2>/dev/null || cp LICENSE package/LICENSE
           (cd package && sha256sum *.rbf SOURCE-compiled.tar.gz > SHA256SUMS)
       - uses: actions/upload-artifact@v4
